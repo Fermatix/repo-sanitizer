@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from pathlib import Path
 
 from repo_sanitizer.context import FileAction, RunContext
@@ -34,12 +35,15 @@ GATE_DEFINITIONS = {
 def run_gate_check(ctx: RunContext) -> dict:
     rulepack: Rulepack = ctx.rulepack
     results = {}
+    gate_timings: dict[str, float] = {}
 
     # Combine all post-sanitization findings (working tree + commit metadata + historical blobs)
     all_post = ctx.post_findings + ctx.history_post_findings + ctx.history_blob_post_findings
 
     for gate_name, gate_def in GATE_DEFINITIONS.items():
+        t0 = time.perf_counter()
         failing = [f for f in all_post if gate_def["check"](f)]
+        gate_timings[gate_name] = round(time.perf_counter() - t0, 4)
         results[gate_name] = {
             "passed": len(failing) == 0,
             "description": gate_def["description"],
@@ -47,7 +51,9 @@ def run_gate_check(ctx: RunContext) -> dict:
         }
 
     # FORBIDDEN_FILES gate
+    t0 = time.perf_counter()
     forbidden = _check_forbidden_files(ctx)
+    gate_timings["FORBIDDEN_FILES"] = round(time.perf_counter() - t0, 4)
     results["FORBIDDEN_FILES"] = {
         "passed": len(forbidden) == 0,
         "description": "No forbidden files in output or history",
@@ -56,13 +62,17 @@ def run_gate_check(ctx: RunContext) -> dict:
     }
 
     # CONFIGS gate
+    t0 = time.perf_counter()
     config_violations = _check_configs(ctx)
+    gate_timings["CONFIGS"] = round(time.perf_counter() - t0, 4)
     results["CONFIGS"] = {
         "passed": len(config_violations) == 0,
         "description": "No config files without allowed suffix in output",
         "failing_count": len(config_violations),
         "files": config_violations,
     }
+
+    ctx.timings.setdefault("gates", {}).update(gate_timings)
 
     all_passed = all(g["passed"] for g in results.values())
     exit_code = 0 if all_passed else 1
@@ -71,6 +81,7 @@ def run_gate_check(ctx: RunContext) -> dict:
         "exit_code": exit_code,
         "all_passed": all_passed,
         "gates": results,
+        "timings": ctx.timings,
         "summary": {
             "total_pre_findings": len(ctx.pre_findings),
             "total_post_findings": len(ctx.post_findings),

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from pathlib import Path
 
 from repo_sanitizer.context import FileAction, FileCategory, RunContext
@@ -66,6 +67,7 @@ def run_scan(
     _warn_missing_grammars(rulepack)
 
     all_findings: list[Finding] = []
+    detector_times: dict[str, float] = {type(d).__name__: 0.0 for d in detectors}
     # Stats: counts per extractor type for CODE files
     ts_files: list[str] = []
     fallback_files: list[str] = []
@@ -104,6 +106,7 @@ def run_scan(
         )
 
         for detector in detectors:
+            t0 = time.perf_counter()
             try:
                 findings = detector.detect(target)
                 for f in findings:
@@ -116,8 +119,14 @@ def run_scan(
                     item.path,
                     e,
                 )
+            finally:
+                detector_times[type(detector).__name__] += time.perf_counter() - t0
 
     _log_extractor_summary(ts_files, fallback_files)
+    scan_key = report_name.removesuffix(".json")
+    ctx.timings.setdefault("detectors", {})[scan_key] = {
+        k: round(v, 3) for k, v in detector_times.items()
+    }
 
     artifact_path = ctx.artifacts_dir / report_name
     artifact_path.write_text(

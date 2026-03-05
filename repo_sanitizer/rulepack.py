@@ -39,6 +39,7 @@ class NERConfig:
     model: str = "Davlan/bert-base-multilingual-cased-ner-hrl"
     min_score: float = 0.7
     entity_types: list[str] = field(default_factory=lambda: ["PER", "ORG"])
+    device: str = "cpu"
 
 
 @dataclass
@@ -75,6 +76,7 @@ def load_rulepack(path: Path) -> Rulepack:
         model=ner_cfg.get("model", NERConfig.model),
         min_score=ner_cfg.get("min_score", NERConfig.min_score),
         entity_types=ner_cfg.get("entity_types", ["PER", "ORG"]),
+        device=ner_cfg.get("device", NERConfig.device),
     )
 
     extractor = _load_extractor_config(path / "extractors.yaml")

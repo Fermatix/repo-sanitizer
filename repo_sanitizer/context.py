@@ -58,6 +58,7 @@ class RunContext:
     history_blob_pre_findings: list[Finding] = field(default_factory=list)
     history_blob_post_findings: list[Finding] = field(default_factory=list)
     redaction_manifest: list[dict] = field(default_factory=list)
+    timings: dict = field(default_factory=dict)
     rev: str = "HEAD"
     max_file_mb: int = 20
     history_since: Optional[str] = None

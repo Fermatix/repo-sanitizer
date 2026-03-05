@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import time
 from pathlib import Path
 
 from repo_sanitizer.context import RunContext
@@ -46,6 +47,7 @@ def run_history_blob_scan(
     logger.info("History blob scan: %d unique blobs found across all refs", len(blobs))
 
     all_findings: list[Finding] = []
+    detector_times: dict[str, float] = {type(d).__name__: 0.0 for d in detectors}
     skipped_binary = 0
     skipped_large = 0
 
@@ -87,6 +89,7 @@ def run_history_blob_scan(
         target = ScanTarget(file_path=virtual_path, content=content)
 
         for detector in detectors:
+            t0 = time.perf_counter()
             try:
                 findings = detector.detect(target)
                 for f in findings:
@@ -99,7 +102,13 @@ def run_history_blob_scan(
                     blob_sha[:8],
                     e,
                 )
+            finally:
+                detector_times[type(detector).__name__] += time.perf_counter() - t0
 
+    scan_key = report_name.removesuffix(".json")
+    ctx.timings.setdefault("detectors", {})[scan_key] = {
+        k: round(v, 3) for k, v in detector_times.items()
+    }
     logger.info(
         "History blob scan '%s': %d findings  (skipped: %d binary, %d oversized)",
         report_name,

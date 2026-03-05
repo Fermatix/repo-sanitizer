@@ -123,6 +123,7 @@ repo-sanitizer sanitize <source> [OPTIONS]
 | `--max-file-mb` | число | нет | `20` | Лимит размера файла в МБ |
 | `--history-since` | дата | нет | — | Нижняя граница истории (формат git: `2024-01-01`) |
 | `--history-until` | дата | нет | — | Верхняя граница истории |
+| `--ner-device` | строка | нет | `cpu` | Устройство для NER-модели: `cpu` \| `cuda` \| `cuda:0` \| `cuda:1` \| `auto` |
 
 **Exit codes:**
 
@@ -152,7 +153,7 @@ repo-sanitizer scan <source> [OPTIONS]
 
 Клонирует репозиторий, строит инвентарь, запускает все детекторы на рабочем дереве и истории — **без каких-либо изменений**. Используется для предварительного аудита.
 
-Принимает те же параметры, что и `sanitize`. Создаёт артефакты `inventory.json`, `scan_report_pre.json`, `history_scan_pre.json`, `history_blob_scan_pre.json`.
+Принимает те же параметры, что и `sanitize` (включая `--ner-device`). Создаёт артефакты `inventory.json`, `scan_report_pre.json`, `history_scan_pre.json`, `history_blob_scan_pre.json`.
 
 **Пример:**
 
@@ -312,6 +313,21 @@ class Detector(ABC):
 
 Фильтрация: score < `ner_min_score` (по умолчанию 0.7) и совпадения короче 3 символов — отбрасываются. Длинные тексты автоматически разбиваются на перекрывающиеся фрагменты.
 
+**GPU-ускорение:** по умолчанию модель запускается на CPU. Для запуска на NVIDIA GPU используйте флаг `--ner-device` или поле `device` в `policies.yaml`:
+
+```bash
+# CLI
+repo-sanitizer sanitize ./repo --rulepack ./rules --out ./out --ner-device cuda
+
+# Конкретный GPU
+repo-sanitizer sanitize ./repo --rulepack ./rules --out ./out --ner-device cuda:1
+
+# Авто-распределение (требует accelerate)
+repo-sanitizer sanitize ./repo --rulepack ./rules --out ./out --ner-device auto
+```
+
+Если CUDA запрошена, но `torch.cuda.is_available()` возвращает `False` — выводится предупреждение и происходит автоматический откат на CPU.
+
 > **Важно:** если `transformers` не установлен или модель недоступна — конвейер падает с понятной ошибкой.
 >
 > NERDetector **не используется** при сканировании исторических блобов из соображений производительности.
@@ -361,6 +377,7 @@ ner:
   model: Davlan/bert-base-multilingual-cased-ner-hrl
   min_score: 0.7
   entity_types: [PER, ORG]
+  device: cpu          # cpu | cuda | cuda:0 | cuda:1 | auto
 
 max_file_mb: 20
 ```
@@ -479,9 +496,46 @@ out/
     "total_history_blob_pre_findings": 8,
     "total_history_blob_post_findings": 0,
     "total_redactions": 17
+  },
+  "timings": {
+    "total_s": 142.3,
+    "steps": {
+      "fetch": 3.2,
+      "inventory": 0.1,
+      "scan_pre": 12.4,
+      "redact": 2.1,
+      "inventory_post": 0.1,
+      "scan_post": 11.8,
+      "history_scan_pre": 5.3,
+      "history_blob_scan_pre": 45.2,
+      "history_rewrite": 38.9,
+      "history_scan_post": 4.8,
+      "history_blob_scan_post": 42.1,
+      "gate_check": 0.02,
+      "package": 1.8
+    },
+    "detectors": {
+      "scan_report_pre": {
+        "SecretsDetector": 5.2,
+        "RegexPIIDetector": 3.1,
+        "DictionaryDetector": 0.8,
+        "EndpointDetector": 0.4,
+        "NERDetector": 2.9
+      }
+    },
+    "gates": {
+      "SECRETS": 0.0012,
+      "PII_HIGH": 0.0008,
+      "DICTIONARY": 0.0005,
+      "ENDPOINTS": 0.0006,
+      "FORBIDDEN_FILES": 0.0003,
+      "CONFIGS": 0.0004
+    }
   }
 }
 ```
+
+Поле `timings` позволяет понять, где расходуется время: какие шаги конвейера самые долгие, какие детекторы медленнее всего, сколько времени занимает каждый gate.
 
 ### Finding (в scan_report_*.json)
 

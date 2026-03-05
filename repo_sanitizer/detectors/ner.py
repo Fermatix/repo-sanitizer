@@ -40,18 +40,53 @@ class NERDetector(Detector):
                 "The 'transformers' package is not installed. "
                 "Install it with: pip install transformers torch"
             )
+        device = self._resolve_device(self.config.device)
         try:
-            self._pipeline = hf_pipeline(
-                "ner",
-                model=self.config.model,
-                aggregation_strategy="simple",
-            )
+            if device == "auto":
+                self._pipeline = hf_pipeline(
+                    "ner",
+                    model=self.config.model,
+                    aggregation_strategy="simple",
+                    device_map="auto",
+                )
+            else:
+                self._pipeline = hf_pipeline(
+                    "ner",
+                    model=self.config.model,
+                    aggregation_strategy="simple",
+                    device=device,
+                )
         except Exception as e:
             raise RuntimeError(
-                f"Failed to load NER model '{self.config.model}': {e}. "
+                f"Failed to load NER model '{self.config.model}' on device '{self.config.device}': {e}. "
                 "Ensure the model is downloaded or provide a local path in policies.yaml."
             )
+        logger.info("NER model '%s' loaded on device '%s'", self.config.model, self.config.device)
         return self._pipeline
+
+    @staticmethod
+    def _resolve_device(device: str) -> str:
+        """Validate and resolve device string; warn if CUDA requested but unavailable."""
+        if device in ("auto",):
+            return device
+        if device.startswith("cuda"):
+            try:
+                import torch
+                if not torch.cuda.is_available():
+                    logger.warning(
+                        "CUDA device '%s' requested but torch.cuda.is_available() is False. "
+                        "Falling back to CPU.",
+                        device,
+                    )
+                    return "cpu"
+            except ImportError:
+                logger.warning(
+                    "CUDA device '%s' requested but torch is not installed. "
+                    "Falling back to CPU.",
+                    device,
+                )
+                return "cpu"
+        return device
 
     def detect(self, target: ScanTarget) -> list[Finding]:
         pipe = self._ensure_pipeline()

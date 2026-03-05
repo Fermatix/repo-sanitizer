@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import time
 from pathlib import Path
 
 from repo_sanitizer.context import RunContext
@@ -19,6 +20,7 @@ def run_history_scan(
 ) -> list[Finding]:
     """Scan commit metadata (author, email, message) for PII."""
     all_findings: list[Finding] = []
+    detector_times: dict[str, float] = {type(d).__name__: 0.0 for d in detectors}
     work_dir = ctx.work_dir
 
     log_format = "%H%n%an%n%ae%n%cn%n%ce%n%B%n---END---"
@@ -55,6 +57,7 @@ def run_history_scan(
                 content=value,
             )
             for detector in detectors:
+                t0 = time.perf_counter()
                 try:
                     findings = detector.detect(target)
                     for f in findings:
@@ -62,6 +65,8 @@ def run_history_scan(
                     all_findings.extend(findings)
                 except Exception:
                     pass
+                finally:
+                    detector_times[type(detector).__name__] += time.perf_counter() - t0
 
         # Scan commit message
         if commit["message"].strip():
@@ -70,6 +75,7 @@ def run_history_scan(
                 content=commit["message"],
             )
             for detector in detectors:
+                t0 = time.perf_counter()
                 try:
                     findings = detector.detect(target)
                     for f in findings:
@@ -77,6 +83,8 @@ def run_history_scan(
                     all_findings.extend(findings)
                 except Exception:
                     pass
+                finally:
+                    detector_times[type(detector).__name__] += time.perf_counter() - t0
 
     artifact_path = ctx.artifacts_dir / report_name
     artifact_path.write_text(
@@ -88,6 +96,10 @@ def run_history_scan(
         encoding="utf-8",
     )
 
+    scan_key = report_name.removesuffix(".json")
+    ctx.timings.setdefault("detectors", {})[scan_key] = {
+        k: round(v, 3) for k, v in detector_times.items()
+    }
     logger.info("History scan '%s': %d findings", report_name, len(all_findings))
     return all_findings
 

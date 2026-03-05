@@ -11,7 +11,7 @@
                          │  pre_findings · post_findings                         │
                          │  history_pre_findings · history_post_findings         │
                          │  history_blob_pre_findings · history_blob_post_findings│
-                         │  redaction_manifest                                   │
+                         │  redaction_manifest · timings                         │
                          └──────────────────────┬───────────────────────────────┘
                                                 │  shared state
           ┌─────────────────────────────────────▼──────────────────────────────┐
@@ -53,6 +53,18 @@
 | `history_blob_pre_findings` | шаг 6b | Findings содержимого файлов (все блобы) |
 | `history_post_findings` | шаг 8 | Findings метаданных после переписывания |
 | `history_blob_post_findings` | шаг 8b | Findings содержимого после переписывания |
+
+Поле `timings` накапливается по ходу конвейера и записывается в `result.json` после завершения:
+
+```
+timings
+├── total_s                    # суммарное время конвейера
+├── steps                      # время каждого шага (fetch, scan_pre, redact, …)
+├── detectors                  # время каждого детектора по каждому скану
+│   ├── scan_report_pre: {SecretsDetector: 5.2, RegexPIIDetector: 3.1, …}
+│   └── history_scan_pre: {…}
+└── gates                      # время каждого gate-check (SECRETS, PII_HIGH, …)
+```
 
 ### Detector (`detectors/base.py`)
 
@@ -225,7 +237,8 @@ Rulepack
 ├── ner: NERConfig
 │   ├── model: str
 │   ├── min_score: float
-│   └── entity_types: list[str]
+│   ├── entity_types: list[str]
+│   └── device: str             # cpu | cuda | cuda:0 | cuda:1 | auto
 ├── extractor: ExtractorConfig
 │   ├── languages: list[ExtractorLanguage]
 │   │   └── {id, grammar_package, file_extensions, extract_zones}
@@ -247,6 +260,7 @@ Rulepack
 | `gitleaks` не найден | `RuntimeError` при инициализации `SecretsDetector` → pipeline exit(1) |
 | `grammar_package` не установлен | WARNING в лог + статистика в конце сканирования; файлы данного языка используют `FallbackExtractor` |
 | `transformers`/модель недоступны | `RuntimeError` в `NERDetector._ensure_pipeline()` → pipeline exit(1) |
+| CUDA запрошена, но недоступна | WARNING в лог + автоматический откат на CPU (`_resolve_device()`) |
 | Ошибка парсинга tree-sitter | `on_parse_error: fallback` → `FallbackExtractor`; `skip` → пустые зоны; `fail` → исключение |
 | Файл не читается | Предупреждение в лог, файл пропускается |
 | Соль не задана | `ValueError` в `RunContext.create()` с понятным сообщением |

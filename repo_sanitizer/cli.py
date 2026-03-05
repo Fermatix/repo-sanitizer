@@ -30,6 +30,10 @@ def sanitize(
     max_file_mb: int = typer.Option(20, "--max-file-mb", help="Max file size in MB"),
     history_since: Optional[str] = typer.Option(None, "--history-since", help="Lower bound for history"),
     history_until: Optional[str] = typer.Option(None, "--history-until", help="Upper bound for history"),
+    ner_device: Optional[str] = typer.Option(
+        None, "--ner-device",
+        help="Device for NER model: cpu | cuda | cuda:0 | cuda:1 | auto (overrides policies.yaml)"
+    ),
 ) -> None:
     """Sanitize a Git repository: scan, redact, rewrite history, and package."""
     _setup_logging()
@@ -45,6 +49,7 @@ def sanitize(
             max_file_mb=max_file_mb,
             history_since=history_since,
             history_until=history_until,
+            ner_device=ner_device,
         )
     except Exception as e:
         logging.getLogger(__name__).error("Fatal error: %s", e)
@@ -64,6 +69,10 @@ def scan(
     max_file_mb: int = typer.Option(20, "--max-file-mb", help="Max file size in MB"),
     history_since: Optional[str] = typer.Option(None, "--history-since", help="Lower bound for history"),
     history_until: Optional[str] = typer.Option(None, "--history-until", help="Upper bound for history"),
+    ner_device: Optional[str] = typer.Option(
+        None, "--ner-device",
+        help="Device for NER model: cpu | cuda | cuda:0 | cuda:1 | auto (overrides policies.yaml)"
+    ),
 ) -> None:
     """Scan a Git repository for PII, secrets, and sensitive data (read-only)."""
     _setup_logging()
@@ -79,6 +88,7 @@ def scan(
             max_file_mb=max_file_mb,
             history_since=history_since,
             history_until=history_until,
+            ner_device=ner_device,
         )
     except Exception as e:
         logging.getLogger(__name__).error("Fatal error: %s", e)

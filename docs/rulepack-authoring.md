@@ -136,7 +136,19 @@ ner:
 
   # Какие entity-типы обнаруживать
   entity_types: [PER, ORG]
+
+  # Устройство для запуска модели
+  # cpu      — только CPU (по умолчанию)
+  # cuda     — первый доступный GPU NVIDIA
+  # cuda:0   — конкретный GPU по индексу
+  # cuda:1   — второй GPU
+  # auto     — Accelerate автоматически распределяет модель (требует pip install accelerate)
+  device: cpu
 ```
+
+Приоритет: CLI `--ner-device` переопределяет `device` из `policies.yaml`.
+
+Если CUDA запрошена, но `torch.cuda.is_available()` возвращает `False` — выводится предупреждение и происходит автоматический откат на CPU.
 
 Для офлайн-среды скачайте модель заранее и укажите локальный путь:
 
@@ -144,6 +156,7 @@ ner:
 ner:
   model: /opt/models/bert-multilingual-ner
   min_score: 0.8
+  device: cuda
 ```
 
 ---
