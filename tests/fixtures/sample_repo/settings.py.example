@@ -1,0 +1,5 @@
+"""Example settings file."""
+
+DATABASE_URL = "postgresql://admin:password@db.internal.corp:5432/mydb"
+SECRET_KEY = "change-me-in-production"
+ADMIN_EMAIL = "admin@corp.internal"

@@ -1,0 +1,9 @@
+database:
+  host: db.prod.internal
+  port: 5432
+  user: admin
+  password: supersecretpassword123
+
+api:
+  endpoint: https://api.corp.internal/v1
+  key: AKIAIOSFODNN7EXAMPLE

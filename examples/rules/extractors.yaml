@@ -1,0 +1,29 @@
+treesitter:
+  languages:
+    - id: python
+      grammar_package: tree-sitter-python
+      file_extensions: [.py, .pyw]
+      extract_zones: [comment_line, comment_block, docstring, string_literal]
+
+    - id: javascript
+      grammar_package: tree-sitter-javascript
+      file_extensions: [.js, .mjs, .cjs]
+      extract_zones: [comment_line, comment_block, string_literal, template_literal]
+
+    - id: typescript
+      grammar_package: tree-sitter-typescript
+      file_extensions: [.ts, .tsx]
+      extract_zones: [comment_line, comment_block, string_literal, template_literal]
+
+  zone_policy:
+    redact_string_literals: true
+    min_string_length: 4
+
+  on_parse_error: fallback
+
+fallback_extractor:
+  enabled: true
+  comment_patterns:
+    - pattern: '#.*$'
+    - pattern: '//.*$'
+    - pattern: '--.*$'
