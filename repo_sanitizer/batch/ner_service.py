@@ -12,8 +12,6 @@ API:
 Entity format matches HuggingFace pipeline with aggregation_strategy="simple":
     {"entity_group": "PER", "score": 0.95, "word": "John Doe", "start": 0, "end": 8}
 """
-from __future__ import annotations
-
 import logging
 import multiprocessing
 import time
