@@ -121,6 +121,16 @@ def launch_ner_service(
         proc.pid,
     )
 
+    # Give the process a moment to start, then check it hasn't immediately crashed
+    # (e.g. port already in use from a previous run).
+    time.sleep(1.0)
+    if not proc.is_alive():
+        raise RuntimeError(
+            f"NER service process died immediately (exit code: {proc.exitcode}). "
+            f"Port {port} may already be in use by a previous run. "
+            f"Kill it with: fuser -k {port}/tcp"
+        )
+
     _wait_for_ready(port, timeout)
     logger.info("NER service is ready on port %d", port)
     return proc

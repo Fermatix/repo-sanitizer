@@ -117,6 +117,12 @@ class NERDetector(Detector):
                     json={"texts": [chunk]},
                     timeout=30.0,
                 )
+                if resp.status_code != 200:
+                    logger.warning(
+                        "NER service returned %d. Response body: %s",
+                        resp.status_code,
+                        resp.text[:1000],
+                    )
                 resp.raise_for_status()
                 return resp.json()["results"][0]
             except Exception as e:
