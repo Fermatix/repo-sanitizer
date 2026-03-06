@@ -22,38 +22,12 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Request/response models — defined at module level so Pydantic v2 can build
-# their JSON schemas correctly (models defined inside functions are not fully
-# compiled by Pydantic v2 and produce 422 errors at runtime).
-# ---------------------------------------------------------------------------
-
-def _make_ner_models() -> tuple[Any, Any]:
-    from pydantic import BaseModel
-
-    class NERRequest(BaseModel):
-        texts: list[str]
-
-    class NERResponse(BaseModel):
-        results: list[list[dict]]
-
-    # With `from __future__ import annotations`, Pydantic v2 stores annotations
-    # as strings and resolves them lazily. Inside a function the resolution
-    # context may be incomplete, so force a rebuild to compile the model schema
-    # correctly before FastAPI registers the routes.
-    NERRequest.model_rebuild()
-    NERResponse.model_rebuild()
-
-    return NERRequest, NERResponse
-
-
-# ---------------------------------------------------------------------------
 # FastAPI application (runs inside the service process)
 # ---------------------------------------------------------------------------
 
 def _make_app(model_name: str, device: str, batch_size: int) -> Any:
-    from fastapi import FastAPI
-
-    NERRequest, NERResponse = _make_ner_models()
+    from fastapi import FastAPI, Request
+    from fastapi.responses import JSONResponse
 
     app = FastAPI(title="NER Service")
     _pipeline: Any = None
@@ -80,15 +54,16 @@ def _make_app(model_name: str, device: str, batch_size: int) -> Any:
         logger.info("NER model ready")
 
     @app.get("/health")
-    def health() -> dict:
-        return {"status": "ready" if _pipeline is not None else "loading"}
+    def health() -> JSONResponse:
+        return JSONResponse({"status": "ready" if _pipeline is not None else "loading"})
 
-    @app.post("/ner", response_model=NERResponse)
-    def ner(req: NERRequest) -> NERResponse:
+    @app.post("/ner")
+    async def ner(request: Request) -> JSONResponse:
+        body = await request.json()
+        texts = body.get("texts", [])
         results = []
-        for text in req.texts:
+        for text in texts:
             entities = _pipeline(text) if _pipeline is not None else []
-            # Normalize to plain dicts (pydantic-friendly)
             results.append(
                 [
                     {
@@ -101,7 +76,7 @@ def _make_app(model_name: str, device: str, batch_size: int) -> Any:
                     for e in entities
                 ]
             )
-        return NERResponse(results=results)
+        return JSONResponse({"results": results})
 
     return app
 
