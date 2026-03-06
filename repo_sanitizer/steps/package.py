@@ -73,5 +73,6 @@ def run_package(ctx: RunContext) -> Path:
         json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
-    logger.info("Bundle created: %s (SHA-256: %s)", bundle_path, sha256)
+    size_mb = bundle_path.stat().st_size / (1024 * 1024)
+    logger.info("Bundle: %s (%.1f MB · SHA: %s)", bundle_path.name, size_mb, sha256[:12])
     return bundle_path

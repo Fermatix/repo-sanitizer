@@ -44,7 +44,7 @@ def run_history_blob_scan(
     work_dir = ctx.work_dir
 
     blobs = _collect_all_blobs(work_dir)
-    logger.info("History blob scan: %d unique blobs found across all refs", len(blobs))
+    logger.info("Scanning %d blobs...", len(blobs))
 
     all_findings: list[Finding] = []
     detector_times: dict[str, float] = {type(d).__name__: 0.0 for d in detectors}
@@ -109,7 +109,7 @@ def run_history_blob_scan(
     ctx.timings.setdefault("detectors", {})[scan_key] = {
         k: round(v, 3) for k, v in detector_times.items()
     }
-    logger.info(
+    logger.debug(
         "History blob scan '%s': %d findings  (skipped: %d binary, %d oversized)",
         report_name,
         len(all_findings),

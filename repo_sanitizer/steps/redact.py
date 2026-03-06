@@ -74,5 +74,5 @@ def run_redact(ctx: RunContext, findings: list[Finding]) -> list[dict]:
         encoding="utf-8",
     )
 
-    logger.info("Redaction complete: %d replacements", len(all_manifest))
+    logger.debug("Redaction complete: %d replacements", len(all_manifest))
     return all_manifest

@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from repo_sanitizer.context import RunContext
+from repo_sanitizer.context import FileAction, RunContext
 from repo_sanitizer.rulepack import load_rulepack
 from repo_sanitizer.steps.fetch import fetch
 from repo_sanitizer.steps.gate import run_gate_check
@@ -19,6 +19,27 @@ from repo_sanitizer.steps.redact import run_redact
 from repo_sanitizer.steps.scan import build_detectors, run_scan
 
 logger = logging.getLogger(__name__)
+
+
+def _finding_summary(findings: list) -> str:
+    """Format findings count with per-category breakdown."""
+    if not findings:
+        return "0 findings"
+    from collections import Counter
+    from repo_sanitizer.detectors.base import Category
+    counts = Counter(f.category for f in findings)
+    parts = []
+    for cat, label in [
+        (Category.SECRET,     "secrets"),
+        (Category.PII,        "PII"),
+        (Category.ORG_NAME,   "org names"),
+        (Category.DICTIONARY, "dict"),
+        (Category.ENDPOINT,   "endpoints"),
+    ]:
+        if counts[cat]:
+            parts.append(f"{counts[cat]} {label}")
+    suffix = f" ({', '.join(parts)})" if parts else ""
+    return f"{len(findings)} findings{suffix}"
 
 
 def _build_context(
@@ -79,32 +100,38 @@ def run_sanitize(
     t_total = time.perf_counter()
 
     # Step 1: Fetch
-    logger.debug("Step 1: Fetch")
     t0 = time.perf_counter()
     fetch(ctx, source)
     ctx.timings["steps"]["fetch"] = round(time.perf_counter() - t0, 3)
 
     # Step 2: Inventory
-    logger.debug("Step 2: Inventory")
     t0 = time.perf_counter()
     run_inventory(ctx)
     ctx.timings["steps"]["inventory"] = round(time.perf_counter() - t0, 3)
+    scan_n = sum(1 for i in ctx.inventory if i.action == FileAction.SCAN)
+    del_n  = sum(1 for i in ctx.inventory if i.action == FileAction.DELETE)
+    skip_n = len(ctx.inventory) - scan_n - del_n
+    logger.info("Inventory: %d files — %d to scan, %d to delete, %d skipped", len(ctx.inventory), scan_n, del_n, skip_n)
 
     # Step 3: Pre-scan (working tree at --rev)
-    logger.info("Scanning working tree...")
     detectors = build_detectors(rulepack, ner_service_url=ctx.ner_service_url)
+    logger.info("Scanning working tree (%d files)...", scan_n)
     t0 = time.perf_counter()
     ctx.pre_findings = run_scan(ctx, detectors, "scan_report_pre.json")
-    ctx.timings["steps"]["scan_pre"] = round(time.perf_counter() - t0, 3)
+    elapsed = time.perf_counter() - t0
+    ctx.timings["steps"]["scan_pre"] = round(elapsed, 3)
+    logger.info("Found %s (%.1fs)", _finding_summary(ctx.pre_findings), elapsed)
 
     # Step 4: Redact
-    logger.info("Redacting %d findings...", len(ctx.pre_findings))
+    files_with_findings = len({f.file_path for f in ctx.pre_findings})
+    logger.info("Redacting %s across %d files, deleting %d...", _finding_summary(ctx.pre_findings), files_with_findings, del_n)
     t0 = time.perf_counter()
     run_redact(ctx, ctx.pre_findings)
-    ctx.timings["steps"]["redact"] = round(time.perf_counter() - t0, 3)
+    elapsed = time.perf_counter() - t0
+    ctx.timings["steps"]["redact"] = round(elapsed, 3)
+    logger.info("Redacted %d replacements (%.1fs)", len(ctx.redaction_manifest), elapsed)
 
-    # Step 5: Post-scan (working tree)
-    logger.debug("Step 5: Post-scan")
+    # Step 5: Post-scan (verification — silent)
     t0 = time.perf_counter()
     run_inventory(ctx)
     ctx.timings["steps"]["inventory_post"] = round(time.perf_counter() - t0, 3)
@@ -118,7 +145,9 @@ def run_sanitize(
     ctx.history_pre_findings = run_history_scan(
         ctx, detectors, "history_scan_pre.json"
     )
-    ctx.timings["steps"]["history_scan_pre"] = round(time.perf_counter() - t0, 3)
+    elapsed = time.perf_counter() - t0
+    ctx.timings["steps"]["history_scan_pre"] = round(elapsed, 3)
+    logger.info("Found %s in commit metadata (%.1fs)", _finding_summary(ctx.history_pre_findings), elapsed)
 
     # Step 6b: History blob pre-scan — file contents in all commits/branches
     logger.info("Scanning history (file blobs)...")
@@ -126,24 +155,24 @@ def run_sanitize(
     ctx.history_blob_pre_findings = run_history_blob_scan(
         ctx, history_detectors, "history_blob_scan_pre.json"
     )
-    ctx.timings["steps"]["history_blob_scan_pre"] = round(time.perf_counter() - t0, 3)
+    elapsed = time.perf_counter() - t0
+    ctx.timings["steps"]["history_blob_scan_pre"] = round(elapsed, 3)
+    logger.info("Found %s in historical blobs (%.1fs)", _finding_summary(ctx.history_blob_pre_findings), elapsed)
 
     # Step 7: History rewrite (git-filter-repo, all branches)
     logger.info("Rewriting history...")
     t0 = time.perf_counter()
     run_history_rewrite(ctx)
-    ctx.timings["steps"]["history_rewrite"] = round(time.perf_counter() - t0, 3)
+    elapsed = time.perf_counter() - t0
+    ctx.timings["steps"]["history_rewrite"] = round(elapsed, 3)
+    logger.info("History rewritten (%.1fs)", elapsed)
 
-    # Step 8: History post-scan — commit metadata
-    logger.debug("Step 8: History post-scan (commit metadata)")
+    # Step 8 + 8b: History post-scans (verification — silent)
     t0 = time.perf_counter()
     ctx.history_post_findings = run_history_scan(
         ctx, detectors, "history_scan_post.json"
     )
     ctx.timings["steps"]["history_scan_post"] = round(time.perf_counter() - t0, 3)
-
-    # Step 8b: History blob post-scan — verify file contents cleaned
-    logger.debug("Step 8b: History blob post-scan (file contents verification)")
     t0 = time.perf_counter()
     ctx.history_blob_post_findings = run_history_blob_scan(
         ctx, history_detectors, "history_blob_scan_post.json"
@@ -151,13 +180,11 @@ def run_sanitize(
     ctx.timings["steps"]["history_blob_scan_post"] = round(time.perf_counter() - t0, 3)
 
     # Step 9: Gate check
-    logger.debug("Step 9: Gate check")
     t0 = time.perf_counter()
     result = run_gate_check(ctx)
     ctx.timings["steps"]["gate_check"] = round(time.perf_counter() - t0, 3)
 
     # Step 10: Package
-    logger.debug("Step 10: Package")
     t0 = time.perf_counter()
     run_package(ctx)
     ctx.timings["steps"]["package"] = round(time.perf_counter() - t0, 3)
@@ -165,20 +192,25 @@ def run_sanitize(
     ctx.timings["total_s"] = round(time.perf_counter() - t_total, 3)
     _patch_result_json(ctx)
 
+    remaining = (
+        len(ctx.post_findings)
+        + len(ctx.history_post_findings)
+        + len(ctx.history_blob_post_findings)
+    )
     exit_code = result.get("exit_code", 1)
     total_s = ctx.timings["total_s"]
     if exit_code == 0:
         logger.info(
-            "Done: %d findings → %d remaining | %d redactions | %.1fs",
-            len(ctx.pre_findings),
-            len(ctx.post_findings) + len(ctx.history_post_findings) + len(ctx.history_blob_post_findings),
+            "Done: %s → %d remaining | %d redactions | %.1fs",
+            _finding_summary(ctx.pre_findings),
+            remaining,
             len(ctx.redaction_manifest),
             total_s,
         )
     else:
         logger.warning(
             "Gates failed: %d findings remain after sanitization (%.1fs)",
-            len(ctx.post_findings) + len(ctx.history_post_findings) + len(ctx.history_blob_post_findings),
+            remaining,
             total_s,
         )
 
@@ -208,23 +240,25 @@ def run_scan_only(
     t_total = time.perf_counter()
 
     # Step 1: Fetch
-    logger.debug("Step 1: Fetch")
     t0 = time.perf_counter()
     fetch(ctx, source)
     ctx.timings["steps"]["fetch"] = round(time.perf_counter() - t0, 3)
 
     # Step 2: Inventory
-    logger.debug("Step 2: Inventory")
     t0 = time.perf_counter()
     run_inventory(ctx)
     ctx.timings["steps"]["inventory"] = round(time.perf_counter() - t0, 3)
+    scan_n = sum(1 for i in ctx.inventory if i.action == FileAction.SCAN)
+    logger.info("Inventory: %d files (%d to scan)", len(ctx.inventory), scan_n)
 
     # Step 3: Pre-scan (working tree)
-    logger.info("Scanning working tree...")
     detectors = build_detectors(rulepack, ner_service_url=ctx.ner_service_url)
+    logger.info("Scanning working tree (%d files)...", scan_n)
     t0 = time.perf_counter()
     ctx.pre_findings = run_scan(ctx, detectors, "scan_report_pre.json")
-    ctx.timings["steps"]["scan_pre"] = round(time.perf_counter() - t0, 3)
+    elapsed = time.perf_counter() - t0
+    ctx.timings["steps"]["scan_pre"] = round(elapsed, 3)
+    logger.info("Found %s (%.1fs)", _finding_summary(ctx.pre_findings), elapsed)
 
     # Step 6: History scan — commit metadata (all branches)
     logger.info("Scanning history (commit metadata)...")
@@ -232,7 +266,9 @@ def run_scan_only(
     ctx.history_pre_findings = run_history_scan(
         ctx, detectors, "history_scan_pre.json"
     )
-    ctx.timings["steps"]["history_scan_pre"] = round(time.perf_counter() - t0, 3)
+    elapsed = time.perf_counter() - t0
+    ctx.timings["steps"]["history_scan_pre"] = round(elapsed, 3)
+    logger.info("Found %s in commit metadata (%.1fs)", _finding_summary(ctx.history_pre_findings), elapsed)
 
     # Step 6b: History blob scan — file contents (all commits/branches)
     logger.info("Scanning history (file blobs)...")
@@ -240,23 +276,17 @@ def run_scan_only(
     ctx.history_blob_pre_findings = run_history_blob_scan(
         ctx, history_detectors, "history_blob_scan_pre.json"
     )
-    ctx.timings["steps"]["history_blob_scan_pre"] = round(time.perf_counter() - t0, 3)
+    elapsed = time.perf_counter() - t0
+    ctx.timings["steps"]["history_blob_scan_pre"] = round(elapsed, 3)
+    logger.info("Found %s in historical blobs (%.1fs)", _finding_summary(ctx.history_blob_pre_findings), elapsed)
 
     ctx.timings["total_s"] = round(time.perf_counter() - t_total, 3)
     _patch_result_json(ctx)
 
-    findings_count = (
-        len(ctx.pre_findings)
-        + len(ctx.history_pre_findings)
-        + len(ctx.history_blob_pre_findings)
-    )
-    logger.info(
-        "Scan complete: %d findings (%.1fs)",
-        findings_count,
-        ctx.timings["total_s"],
-    )
+    all_findings = ctx.pre_findings + ctx.history_pre_findings + ctx.history_blob_pre_findings
+    logger.info("Scan complete: %s (%.1fs)", _finding_summary(all_findings), ctx.timings["total_s"])
 
-    return 0 if findings_count == 0 else 1
+    return 0 if not all_findings else 1
 
 
 def _patch_result_json(ctx: RunContext) -> None:

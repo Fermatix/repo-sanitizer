@@ -100,7 +100,7 @@ def run_history_scan(
     ctx.timings.setdefault("detectors", {})[scan_key] = {
         k: round(v, 3) for k, v in detector_times.items()
     }
-    logger.info("History scan '%s': %d findings", report_name, len(all_findings))
+    logger.debug("History scan '%s': %d findings", report_name, len(all_findings))
     return all_findings
 
 
