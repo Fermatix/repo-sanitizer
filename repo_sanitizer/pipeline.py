@@ -31,6 +31,7 @@ def run_sanitize(
     history_since: Optional[str] = None,
     history_until: Optional[str] = None,
     ner_device: Optional[str] = None,
+    ner_service_url: Optional[str] = None,
 ) -> int:
     """Run the full sanitize pipeline. Returns exit code (0=pass, 1=fail)."""
     ctx = RunContext.create(
@@ -43,6 +44,7 @@ def run_sanitize(
         history_since=history_since,
         history_until=history_until,
     )
+    ctx.ner_service_url = ner_service_url
 
     rulepack = load_rulepack(ctx.rulepack_path)
     ctx.rulepack = rulepack
@@ -71,7 +73,7 @@ def run_sanitize(
 
     # Step 3: Pre-scan (working tree at --rev)
     logger.info("Step 3: Pre-scan")
-    detectors = build_detectors(rulepack)
+    detectors = build_detectors(rulepack, ner_service_url=ctx.ner_service_url)
     t0 = time.perf_counter()
     ctx.pre_findings = run_scan(ctx, detectors, "scan_report_pre.json")
     ctx.timings["steps"]["scan_pre"] = round(time.perf_counter() - t0, 3)
@@ -163,6 +165,7 @@ def run_scan_only(
     history_since: Optional[str] = None,
     history_until: Optional[str] = None,
     ner_device: Optional[str] = None,
+    ner_service_url: Optional[str] = None,
 ) -> int:
     """Run scan-only pipeline (no redaction). Covers working tree + all history."""
     ctx = RunContext.create(
@@ -175,6 +178,7 @@ def run_scan_only(
         history_since=history_since,
         history_until=history_until,
     )
+    ctx.ner_service_url = ner_service_url
 
     rulepack = load_rulepack(ctx.rulepack_path)
     ctx.rulepack = rulepack
@@ -203,7 +207,7 @@ def run_scan_only(
 
     # Step 3: Pre-scan (working tree)
     logger.info("Step 3: Pre-scan")
-    detectors = build_detectors(rulepack)
+    detectors = build_detectors(rulepack, ner_service_url=ctx.ner_service_url)
     t0 = time.perf_counter()
     ctx.pre_findings = run_scan(ctx, detectors, "scan_report_pre.json")
     ctx.timings["steps"]["scan_pre"] = round(time.perf_counter() - t0, 3)

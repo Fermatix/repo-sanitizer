@@ -61,3 +61,19 @@ python -c "import git_filter_repo; print('ok')"
 python -c "from transformers import pipeline; print('ok')"
 repo-sanitizer --help
 ```
+
+---
+
+## Batch-режим: дополнительные зависимости
+
+Для `repo-sanitizer batch run` нужны дополнительные пакеты:
+
+```bash
+# На машине с интернетом
+pip download python-gitlab fastapi "uvicorn[standard]" httpx -d ./packages/
+
+# На офлайн-машине
+pip install --no-index --find-links ./packages/ python-gitlab fastapi "uvicorn[standard]" httpx
+```
+
+В batch-режиме GitLab доступен по сети (self-hosted GitLab), поэтому полная air-gap изоляция обычно не требуется — только NER-модель и pip-пакеты нужно подготовить заранее.

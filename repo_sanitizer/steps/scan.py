@@ -14,7 +14,7 @@ from repo_sanitizer.rulepack import Rulepack
 logger = logging.getLogger(__name__)
 
 
-def build_detectors(rulepack: Rulepack) -> list[Detector]:
+def build_detectors(rulepack: Rulepack, ner_service_url: str | None = None) -> list[Detector]:
     from repo_sanitizer.detectors.secrets import SecretsDetector
     from repo_sanitizer.detectors.regex_pii import RegexPIIDetector
     from repo_sanitizer.detectors.dictionary import DictionaryDetector
@@ -29,7 +29,7 @@ def build_detectors(rulepack: Rulepack) -> list[Detector]:
         detectors.append(DictionaryDetector(rulepack.dictionaries))
     domain_list = rulepack.dictionaries.get("domains", [])
     detectors.append(EndpointDetector(domain_list))
-    detectors.append(NERDetector(rulepack.ner))
+    detectors.append(NERDetector(rulepack.ner, service_url=ner_service_url))
     return detectors
 
 

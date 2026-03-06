@@ -9,6 +9,9 @@ import typer
 
 app = typer.Typer(name="repo-sanitizer", help="Anonymize Git repositories before sharing.")
 
+batch_app = typer.Typer(name="batch", help="Batch-process multiple GitLab repositories.")
+app.add_typer(batch_app, name="batch")
+
 
 def _setup_logging() -> None:
     logging.basicConfig(
@@ -16,6 +19,32 @@ def _setup_logging() -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+
+
+def _exit_for_missing_dependency(error: ModuleNotFoundError, feature: str) -> None:
+    module = error.name or "unknown-module"
+    package = "python-gitlab" if module == "gitlab" else module
+    logging.getLogger(__name__).error(
+        "Missing dependency '%s' required for %s. Install dependencies with `uv sync` "
+        "or `pip install %s`.",
+        package,
+        feature,
+        package,
+    )
+    raise typer.Exit(code=1) from error
+
+
+def _summarize_batch_error(error: Exception) -> str:
+    message = str(error).strip().replace("\n", " ")
+    if "Just a moment..." in message and "cloudflare" in message.lower():
+        return (
+            "GitLab returned a Cloudflare challenge (HTTP 403). "
+            "Check `gitlab.url` in your batch config: it should be the host "
+            "URL (for example, `https://gitlab.com`), not a group/project URL."
+        )
+    if len(message) > 500:
+        return f"{message[:500]}... [truncated]"
+    return message
 
 
 @app.command()
@@ -139,6 +168,78 @@ def install_grammars(
 
     typer.echo("\nDone. Re-run to verify:")
     typer.echo(f"  repo-sanitizer install-grammars --rulepack {rulepack}")
+
+
+@batch_app.command("run")
+def batch_run(
+    config: Path = typer.Option(..., "--config", help="Path to batch YAML config file"),
+    partner: list[str] = typer.Option(
+        [], "--partner", help="Process only these partners (repeatable)"
+    ),
+    repo: list[str] = typer.Option(
+        [], "--repo", help="Process only these repos as partner/name (repeatable)"
+    ),
+    retry_failed: bool = typer.Option(
+        False, "--retry-failed", help="Re-process repos that failed in a previous run"
+    ),
+) -> None:
+    """Sanitize all matching GitLab repositories and push bundles to the delivery group."""
+    _setup_logging()
+    from repo_sanitizer.batch.config import load_batch_config
+    try:
+        from repo_sanitizer.batch.orchestrator import run_batch
+    except ModuleNotFoundError as e:
+        _exit_for_missing_dependency(e, "batch mode")
+
+    try:
+        cfg = load_batch_config(config)
+    except Exception as e:
+        logging.getLogger(__name__).error("Cannot load batch config: %s", e)
+        raise typer.Exit(code=1)
+
+    try:
+        exit_code = run_batch(
+            config=cfg,
+            override_partners=list(partner) or None,
+            override_repos=list(repo) or None,
+            retry_failed=retry_failed,
+        )
+    except Exception as e:
+        logging.getLogger(__name__).error("Batch failed: %s", _summarize_batch_error(e))
+        raise typer.Exit(code=1)
+
+    raise typer.Exit(code=exit_code)
+
+
+@batch_app.command("list")
+def batch_list(
+    config: Path = typer.Option(..., "--config", help="Path to batch YAML config file"),
+) -> None:
+    """List all repositories that would be processed according to the config scope."""
+    _setup_logging()
+    from repo_sanitizer.batch.config import load_batch_config
+    try:
+        from repo_sanitizer.batch.orchestrator import list_repos
+    except ModuleNotFoundError as e:
+        _exit_for_missing_dependency(e, "batch mode")
+
+    try:
+        cfg = load_batch_config(config)
+    except Exception as e:
+        logging.getLogger(__name__).error("Cannot load batch config: %s", e)
+        raise typer.Exit(code=1)
+
+    try:
+        tasks = list_repos(cfg)
+    except Exception as e:
+        logging.getLogger(__name__).error(
+            "Failed to list repos: %s", _summarize_batch_error(e)
+        )
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Found {len(tasks)} repositories:\n")
+    for task in tasks:
+        typer.echo(f"  {task.partner}/{task.name}")
 
 
 def app_main() -> None:

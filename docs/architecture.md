@@ -283,3 +283,98 @@ Rulepack
 4. При необходимости добавить в `steps/history_blob_scan.py` → `build_history_detectors(rulepack)` (если детектор допустим для побайтового сканирования блобов)
 5. Добавить маску в `redaction/replacements.py` → `CATEGORY_MASKERS`
 6. Написать unit-тест в `tests/test_detectors.py`
+
+---
+
+## Batch-режим
+
+Batch-режим добавляет отдельный слой поверх одиночного конвейера для параллельной обработки тысяч репозиториев из GitLab.
+
+### Модули (`repo_sanitizer/batch/`)
+
+| Модуль | Ответственность |
+|---|---|
+| `config.py` | `BatchConfig` dataclass + `load_batch_config(path)` |
+| `gitlab_client.py` | `GitLabClient`: enumerate repos, ensure delivery projects, push bundles |
+| `ner_service.py` | FastAPI NER-сервис: загружает модель 1 раз на GPU, отдаёт инференс по HTTP |
+| `worker.py` | `process_repo(task, config)` — выполняется в subprocess |
+| `orchestrator.py` | `run_batch()` / `list_repos()`: NER service → enumerate → workers → state |
+
+### Поток выполнения
+
+```
+repo-sanitizer batch run --config batch.yaml
+         │
+         ▼
+orchestrator.run_batch()
+    │
+    ├── 1. GitLabClient.list_repos(scope)     ← GitLab API
+    │         └── RepoTask[]: partner, name, clone_url, delivery_url
+    │
+    ├── 2. filter_tasks(state)                ← пропустить done/failed
+    │
+    ├── 3. GitLabClient.ensure_delivery_project() × N   ← создать если нет
+    │
+    ├── 4. launch_ner_service(model, device, port)
+    │         └── FastAPI процесс, ждём GET /health → "ready"
+    │
+    ├── 5. ProcessPoolExecutor(workers=N)
+    │         ├── Worker-0: process_repo(task_0)
+    │         ├── Worker-1: process_repo(task_1)
+    │         │   ...
+    │         └── Worker-N: process_repo(task_N)
+    │               │
+    │               ├── run_sanitize(clone_url, ner_service_url=http://127.0.0.1:port)
+    │               └── GitLabClient.push_bundle(bundle_path, delivery_url)
+    │
+    └── 6. ner_proc.terminate()
+              └── batch_state.json (обновляется после каждого репо)
+```
+
+### NERDetector: локальный vs HTTP-режим
+
+`NERDetector` поддерживает два режима, определяемых параметром `service_url`:
+
+```
+service_url=None (одиночный режим)       service_url="http://127.0.0.1:8765" (batch)
+         │                                          │
+         ▼                                          ▼
+_ensure_pipeline()                          httpx.post("/ner", {"texts": [chunk]})
+→ HuggingFace pipeline (локальный GPU)     → NER Service (shared GPU)
+```
+
+`RunContext.ner_service_url` устанавливается в `pipeline.run_sanitize()` и передаётся в `build_detectors()` → `NERDetector.__init__`. Одиночный режим (`ner_service_url=None`) работает без изменений.
+
+### NER HTTP API
+
+```
+GET  /health  → {"status": "ready" | "loading"}
+POST /ner     → {"texts": ["chunk1", "chunk2"]}
+              ← {"results": [[{entity_group, score, word, start, end}, ...], ...]}
+```
+
+Формат ответа совпадает с HuggingFace pipeline с `aggregation_strategy="simple"`.
+
+### State файл (`batch_state.json`)
+
+Персистирует прогресс после каждого репозитория. Позволяет возобновить прерванный прогон:
+
+```json
+{
+  "partner/repo": {"status": "done",   "bundle_sha256": "abc...", "ts": "..."},
+  "partner/repo": {"status": "failed", "error": "...",             "ts": "..."}
+}
+```
+
+Статус `running` от прерванного прогона трактуется как `failed` и перезапускается.
+
+### Рекомендованные параметры для Threadripper + RTX 2080 Ti
+
+```yaml
+processing:
+  workers: 16          # ≤ кол-во физических ядер
+  ner_batch_size: 32   # GPU batch size (подобрать под VRAM)
+  ner_service_port: 8765
+```
+
+GPU остаётся занята NER-сервисом, CPU-ядра — параллельным git/regex/tree-sitter. I/O (clone/push) перекрывается с CPU-работой соседних воркеров.

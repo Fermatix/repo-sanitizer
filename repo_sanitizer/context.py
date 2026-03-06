@@ -63,6 +63,7 @@ class RunContext:
     max_file_mb: int = 20
     history_since: Optional[str] = None
     history_until: Optional[str] = None
+    ner_service_url: Optional[str] = None  # if set, NERDetector calls this HTTP service
 
     @classmethod
     def create(

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from repo_sanitizer.detectors.base import (
     Category,
@@ -24,10 +24,16 @@ CHUNK_OVERLAP_LINES = 3
 
 
 class NERDetector(Detector):
-    """Detect person and organization names using a transformer NER model."""
+    """Detect person and organization names using a transformer NER model.
 
-    def __init__(self, config: NERConfig) -> None:
+    In batch mode, pass ``service_url`` (e.g. ``"http://127.0.0.1:8765"``) so
+    that the model is shared via a dedicated NER service process instead of
+    being loaded into every worker process.
+    """
+
+    def __init__(self, config: NERConfig, service_url: Optional[str] = None) -> None:
         self.config = config
+        self.service_url = service_url  # if set, use HTTP mode (batch)
         self._pipeline = None
 
     def _ensure_pipeline(self) -> Any:
@@ -89,23 +95,39 @@ class NERDetector(Detector):
         return device
 
     def detect(self, target: ScanTarget) -> list[Finding]:
-        pipe = self._ensure_pipeline()
         findings = []
 
         if target.is_zoned:
             for zone in target.zones:
                 text = target.content[zone.start : zone.end]
-                zone_findings = self._detect_text(
-                    pipe, text, target.file_path, zone.start
-                )
+                zone_findings = self._detect_text(text, target.file_path, zone.start)
                 findings.extend(zone_findings)
         else:
-            findings = self._detect_text(pipe, target.content, target.file_path, 0)
+            findings = self._detect_text(target.content, target.file_path, 0)
 
         return self._deduplicate(findings)
 
+    def _infer(self, chunk: str) -> list[dict]:
+        """Run NER inference on a single text chunk. Uses HTTP service if configured."""
+        if self.service_url:
+            try:
+                import httpx
+                resp = httpx.post(
+                    f"{self.service_url}/ner",
+                    json={"texts": [chunk]},
+                    timeout=30.0,
+                )
+                resp.raise_for_status()
+                return resp.json()["results"][0]
+            except Exception as e:
+                logger.warning("NER service call failed: %s", e)
+                return []
+        else:
+            pipe = self._ensure_pipeline()
+            return pipe(chunk)
+
     def _detect_text(
-        self, pipe: Any, text: str, file_path: str, base_offset: int
+        self, text: str, file_path: str, base_offset: int
     ) -> list[Finding]:
         if not text.strip():
             return []
@@ -113,7 +135,7 @@ class NERDetector(Detector):
         findings = []
         for chunk_offset, chunk in chunks:
             try:
-                results = pipe(chunk)
+                results = self._infer(chunk)
             except Exception as e:
                 logger.warning("NER inference error: %s", e)
                 continue

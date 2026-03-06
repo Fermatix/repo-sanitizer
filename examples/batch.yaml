@@ -1,0 +1,59 @@
+# Batch configuration for repo-sanitizer.
+#
+# Usage examples:
+#   All partners:        repo-sanitizer batch run --config examples/batch.yaml
+#   Specific partners:   repo-sanitizer batch run --config examples/batch.yaml --partner acme-corp
+#   Specific repos:      repo-sanitizer batch run --config examples/batch.yaml --repo acme-corp/backend-api
+#   Retry failed:        repo-sanitizer batch run --config examples/batch.yaml --retry-failed
+#   List repos (dry):    repo-sanitizer batch list --config examples/batch.yaml
+
+# ---------------------------------------------------------------------------
+# GitLab connection
+# ---------------------------------------------------------------------------
+gitlab:
+  url: https://gitlab.com            # host URL only (no group/project path)
+  token_env: GITLAB_TOKEN           # env var holding the Personal Access Token
+                                    # (needs read_api + read_repository on source group,
+                                    #  api + write_repository on delivery group)
+  source_group: doubletapp/data-llm/partner-private-repos
+  delivery_group: doubletapp/data-llm/partner-private-repos-delivery
+  clone_depth: 0                    # 0 = full history (required for history rewrite)
+
+# ---------------------------------------------------------------------------
+# Scope — which repos to process.
+# Priority: repos > partners > all (highest to lowest).
+# Use CLI flags --partner / --repo to override at runtime.
+# ---------------------------------------------------------------------------
+scope:
+  all: true
+  # partners:
+  #   - acme-corp
+  #   - big-co
+  # repos:
+  #   - acme-corp/backend-api
+  #   - big-co/frontend-app
+
+# ---------------------------------------------------------------------------
+# Rulepack (same as --rulepack in single-repo mode)
+# ---------------------------------------------------------------------------
+rulepack: examples/rules
+
+# Salt env var (same as --salt-env in single-repo mode)
+salt_env: REPO_SANITIZER_SALT
+
+# ---------------------------------------------------------------------------
+# Parallelization
+# ---------------------------------------------------------------------------
+processing:
+  workers: 16                       # parallel worker processes (set to CPU core count)
+  ner_service_port: 8765            # local port for the shared NER HTTP service
+  ner_batch_size: 32                # GPU inference batch size
+  work_base_dir: /tmp/repo-san-work # temporary working directory per repo
+  keep_work_dirs: false             # delete work dirs after successful push
+
+# ---------------------------------------------------------------------------
+# Output
+# ---------------------------------------------------------------------------
+output:
+  artifacts_dir: ./batch-artifacts  # persistent artifacts: <dir>/<partner>/<repo>/
+  state_file: ./batch_state.json    # progress tracking (enables resume / --retry-failed)

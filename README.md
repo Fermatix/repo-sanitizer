@@ -11,6 +11,7 @@
 - [Быстрый старт](#быстрый-старт)
 - [Установка](#установка)
 - [Команды CLI](#команды-cli)
+- [Batch-режим: обработка 2500+ репозиториев](#batch-режим-обработка-2500-репозиториев)
 - [Конвейер sanitize](#конвейер-sanitize)
 - [Детекторы](#детекторы)
 - [Rulepack](#rulepack)
@@ -60,9 +61,9 @@ git clone sanitized-output/output/sanitized.bundle ./verification
 **С uv (рекомендуется):**
 
 ```bash
-uv add repo-sanitizer
+uv add repo-sanitizer --dev
 # или глобально:
-uv tool install repo-sanitizer
+uv tool install repo-sanitizer --dev
 ```
 
 **С pip:**
@@ -78,7 +79,7 @@ pip install repo-sanitizer
 brew install gitleaks
 
 # Linux
-curl -sSfL https://raw.githubusercontent.com/gitleaks/gitleaks/main/scripts/install.sh | sh -s latest
+sudo apt install gitleaks
 
 # Windows (Scoop)
 scoop install gitleaks
@@ -183,6 +184,149 @@ repo-sanitizer install-grammars --rulepack ./my-rules
 ```
 
 > **Без этой команды** конвейер продолжает работать — для файлов без установленной грамматики автоматически используется `FallbackExtractor` (regex-комментарии). В начале сканирования выводится предупреждение, в конце — сводка по покрытию.
+
+---
+
+## Batch-режим: обработка 2500+ репозиториев
+
+Batch-режим позволяет автоматически клонировать репозитории из группы GitLab, анонимизировать каждый и загружать bundle в delivery-группу. Предназначен для обработки тысяч репозиториев на сервере с многоядерным CPU и GPU.
+
+### Быстрый старт
+
+```bash
+# 1. Задать переменные окружения
+export REPO_SANITIZER_SALT="$(openssl rand -hex 32)"
+export GITLAB_TOKEN="glpat-xxxxxxxxxxxxxxxxxxxx"
+
+# 2. Посмотреть, какие репозитории попадут в обработку
+repo-sanitizer batch list --config examples/batch.yaml
+
+# 3. Обработать все репозитории
+repo-sanitizer batch run --config examples/batch.yaml
+
+# 4. Только конкретный партнёр
+repo-sanitizer batch run --config examples/batch.yaml --partner acme-corp
+
+# 5. Только конкретный репозиторий
+repo-sanitizer batch run --config examples/batch.yaml --repo acme-corp/backend-api
+
+# 6. Повторить только упавшие (после сбоя)
+repo-sanitizer batch run --config examples/batch.yaml --retry-failed
+```
+
+### Команды batch
+
+#### `batch run` — запустить обработку
+
+```
+repo-sanitizer batch run --config PATH [OPTIONS]
+```
+
+| Параметр | Описание |
+|---|---|
+| `--config` | Путь к YAML-файлу конфигурации batch |
+| `--partner NAME` | Обрабатывать только этих партнёров (повторяемый) |
+| `--repo PARTNER/NAME` | Обрабатывать только эти репозитории (повторяемый) |
+| `--retry-failed` | Повторить репозитории со статусом `failed` из предыдущего запуска |
+
+CLI-флаги переопределяют `scope` из конфигурационного файла. Приоритет: `--repo` > `--partner` > `scope` из конфига.
+
+#### `batch list` — перечислить репозитории (dry-run)
+
+```
+repo-sanitizer batch list --config PATH
+```
+
+Перечисляет репозитории из GitLab согласно `scope` без какой-либо обработки.
+
+### Конфигурационный файл (batch.yaml)
+
+Следует тому же паттерну, что и `policies.yaml` / `extractors.yaml`:
+
+```yaml
+# Подключение к GitLab
+gitlab:
+  url: https://gitlab.example.com
+  token_env: GITLAB_TOKEN           # имя env-переменной с токеном
+  source_group: partner-private-repos
+  delivery_group: partner-private-repos-delivery
+  clone_depth: 0                    # 0 = полная история
+
+# Область обработки (взаимоисключающие, приоритет: repos > partners > all)
+scope:
+  all: true
+  # partners:
+  #   - acme-corp
+  # repos:
+  #   - acme-corp/backend-api
+
+# Путь к rulepack (как в --rulepack)
+rulepack: examples/rules
+
+# Env-переменная с солью
+salt_env: REPO_SANITIZER_SALT
+
+# Параллелизация
+processing:
+  workers: 16                       # параллельных воркеров
+  ner_service_port: 8765            # порт NER HTTP-сервиса
+  ner_batch_size: 32                # размер батча GPU-инференса
+  work_base_dir: /tmp/repo-san-work # временные директории
+  keep_work_dirs: false             # удалять после push
+
+# Выходные данные
+output:
+  artifacts_dir: ./batch-artifacts  # <dir>/<partner>/<repo>/
+  state_file: ./batch_state.json    # прогресс (resume/retry)
+```
+
+Полный пример: [`examples/batch.yaml`](examples/batch.yaml).
+
+### Архитектура параллелизации
+
+При обработке большого числа репозиториев ключевая проблема — NER-модель: она весит ~1.1 GB VRAM. Если каждый из 16 воркеров загрузит свою копию — память GPU переполнится.
+
+**Решение: NER как выделенный HTTP-сервис**
+
+```
+Orchestrator
+├── NER Service (FastAPI, GPU)    ← модель загружена 1 раз
+│     POST /ner → entities
+│
+├── Worker-0 (process)  ──┐
+├── Worker-1 (process)  ──┤── HTTP → NER Service
+│   ...                   │
+└── Worker-N (process)  ──┘
+    Каждый: clone → sanitize → upload
+```
+
+- **NER Service** запускается orchestrator'ом перед воркерами; берёт модель и `device` из `policies.yaml` (тот же `cuda:0`, что и в одиночном режиме)
+- **Worker Pool** — `ProcessPoolExecutor(max_workers=N)`: CPU-bound работа (tree-sitter, regex, git) масштабируется линейно на все ядра Threadripper
+- **NERDetector** в воркерах автоматически переключается в HTTP-режим при наличии `ner_service_url`
+- **Одиночный режим** (`repo-sanitizer sanitize`) работает как раньше — модель загружается локально
+
+### Необходимые права GitLab-токена
+
+| Группа | Права |
+|---|---|
+| `partner-private-repos` | `read_api`, `read_repository` |
+| `partner-private-repos-delivery` | `api`, `write_repository` |
+
+### Отслеживание прогресса и resume
+
+Прогресс сохраняется в `batch_state.json` после каждого репозитория:
+
+```json
+{
+  "acme-corp/backend-api": {"status": "done", "bundle_sha256": "abc...", "ts": "..."},
+  "acme-corp/frontend": {"status": "failed", "error": "gitleaks not found", "ts": "..."},
+  "big-co/service": {"status": "done", "bundle_sha256": "def...", "ts": "..."}
+}
+```
+
+- `done` — пропускается при повторном запуске
+- `failed` — пропускается, обрабатывается с `--retry-failed`
+- При падении процесса — возобновляется с того же места
 
 ---
 
@@ -650,9 +794,9 @@ uv run repo-sanitizer --help
 
 ```
 repo_sanitizer/
-├── cli.py                  # Точка входа (Typer)
-├── context.py              # RunContext: salt, пути, rulepack, findings
-├── pipeline.py             # Оркестратор шагов
+├── cli.py                  # Точка входа (Typer): sanitize, scan, install-grammars, batch
+├── context.py              # RunContext: salt, пути, rulepack, findings, ner_service_url
+├── pipeline.py             # Оркестратор шагов (run_sanitize / run_scan_only)
 ├── rulepack.py             # Загрузка и валидация rulepack
 ├── steps/
 │   ├── fetch.py            # Clone / copy
@@ -670,7 +814,7 @@ repo_sanitizer/
 │   ├── regex_pii.py        # Email, phone, IP, JWT, URL
 │   ├── dictionary.py       # Aho-Corasick по словарям
 │   ├── endpoint.py         # Внутренние домены, приватные IP
-│   └── ner.py              # Transformer NER: PER, ORG
+│   └── ner.py              # Transformer NER: PER, ORG (локальный + HTTP-режим)
 ├── extractors/
 │   ├── treesitter.py       # Tree-sitter extractor
 │   └── fallback.py         # Regex-fallback для комментариев
@@ -678,12 +822,22 @@ repo_sanitizer/
 │   ├── replacements.py     # HMAC-маски
 │   ├── applier.py          # Замена span'ов в файле
 │   └── git_identity.py     # Нормализация авторов
-└── rules/                  # Встроенный rulepack
+├── batch/                  # Batch-режим: обработка тысяч репозиториев
+│   ├── config.py           # BatchConfig + load_batch_config()
+│   ├── gitlab_client.py    # GitLabClient: enumerate, ensure_delivery, push_bundle
+│   ├── ner_service.py      # NER HTTP-сервис (FastAPI, GPU, 1 копия модели)
+│   ├── worker.py           # process_repo() — worker subprocess
+│   └── orchestrator.py     # run_batch() / list_repos()
+└── rules/                  # Встроенный rulepack (symlink → examples/rules)
     ├── VERSION
     ├── policies.yaml
     ├── extractors.yaml
     ├── dict/
     └── regex/
+
+examples/
+├── rules/                  # Пример rulepack
+└── batch.yaml              # Пример batch-конфигурации
 ```
 
 ### Добавить новый детектор
