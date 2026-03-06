@@ -100,7 +100,7 @@ class GitLabClient:
 
     def ensure_delivery_project(self, partner: str, repo_name: str) -> str:
         """Create delivery group/project if needed. Returns authenticated push URL."""
-        partner_group = self._ensure_delivery_partner_group(partner)
+        partner_group = self.ensure_delivery_partner_group(partner)
 
         namespace = f"{self.delivery_group}/{partner}"
         try:
@@ -119,7 +119,7 @@ class GitLabClient:
 
         return self._auth_url(project.http_url_to_repo)
 
-    def _ensure_delivery_partner_group(self, partner: str):
+    def ensure_delivery_partner_group(self, partner: str):
         namespace = f"{self.delivery_group}/{partner}"
         try:
             return self.gl.groups.get(namespace)

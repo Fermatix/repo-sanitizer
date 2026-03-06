@@ -75,9 +75,17 @@ def run_batch(
         config.processing.workers,
     )
 
-    # Pre-create delivery projects in parallel so workers don't race on group creation
-    logger.info("Ensuring delivery projects exist...")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as pool:
+    # Create partner groups sequentially first to avoid race conditions
+    # (multiple threads creating the same group → GitLab 500)
+    unique_partners = sorted({t.partner for t in tasks})
+    logger.info("Ensuring delivery groups for %d partner(s)...", len(unique_partners))
+    for partner in unique_partners:
+        client.ensure_delivery_partner_group(partner)
+
+    # Create projects in parallel — groups already exist, safe to parallelize
+    # Pool size ≤ 8 to stay within urllib3's default connection pool (10)
+    logger.info("Ensuring delivery projects exist (%d repos)...", len(tasks))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
         fut_to_task = {
             pool.submit(client.ensure_delivery_project, t.partner, t.name): t
             for t in tasks
