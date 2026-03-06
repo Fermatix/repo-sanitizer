@@ -13,12 +13,38 @@ batch_app = typer.Typer(name="batch", help="Batch-process multiple GitLab reposi
 app.add_typer(batch_app, name="batch")
 
 
+# ANSI color codes per level — only used when stderr is a TTY
+_LEVEL_COLOR = {
+    logging.DEBUG:    "\033[2m",     # dim
+    logging.WARNING:  "\033[33m",    # yellow
+    logging.ERROR:    "\033[31m",    # red
+    logging.CRITICAL: "\033[1;31m",  # bold red
+}
+_RESET = "\033[0m"
+
+# Third-party loggers that are too noisy at INFO/WARNING
+_QUIET_LOGGERS = ("urllib3", "transformers", "httpx", "filelock", "huggingface_hub")
+
+
+class _ColorFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        msg = super().format(record)
+        color = _LEVEL_COLOR.get(record.levelno, "")
+        return f"{color}{msg}{_RESET}" if color else msg
+
+
 def _setup_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)-5s %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    fmt = "%(asctime)s %(levelname)-5s %(message)s"
+    datefmt = "%H:%M:%S"
+    handler = logging.StreamHandler(sys.stderr)
+    if sys.stderr.isatty():
+        handler.setFormatter(_ColorFormatter(fmt=fmt, datefmt=datefmt))
+    else:
+        handler.setFormatter(logging.Formatter(fmt=fmt, datefmt=datefmt))
+    logging.basicConfig(level=logging.INFO, handlers=[handler])
+
+    for name in _QUIET_LOGGERS:
+        logging.getLogger(name).setLevel(logging.ERROR)
 
 
 def _exit_for_missing_dependency(error: ModuleNotFoundError, feature: str) -> None:

@@ -90,7 +90,14 @@ def _run_server(model_name: str, device: str, port: int, batch_size: int) -> Non
     """Entry point for the service subprocess."""
     import uvicorn
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [NER] %(message)s")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)-5s [NER] %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    for name in ("transformers", "filelock", "huggingface_hub", "urllib3", "httpx"):
+        logging.getLogger(name).setLevel(logging.ERROR)
+
     app = _make_app(model_name, device, batch_size)
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
