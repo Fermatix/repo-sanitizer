@@ -6,7 +6,7 @@ loading their own copy of the model into VRAM.
 
 API:
     GET  /health  → {"status": "ready" | "loading"}
-    POST /ner     → body: {"texts": ["...", ...], "batch_size": 32}
+    POST /ner     → body: {"texts": ["...", ...]}
                   → response: {"results": [[{entity}, ...], ...]}
 
 Entity format matches HuggingFace pipeline with aggregation_strategy="simple":
@@ -22,23 +22,41 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Request/response models — defined at module level so Pydantic v2 can build
+# their JSON schemas correctly (models defined inside functions are not fully
+# compiled by Pydantic v2 and produce 422 errors at runtime).
+# ---------------------------------------------------------------------------
+
+def _make_ner_models() -> tuple[Any, Any]:
+    from pydantic import BaseModel
+
+    class NERRequest(BaseModel):
+        texts: list[str]
+
+    class NERResponse(BaseModel):
+        results: list[list[dict]]
+
+    # With `from __future__ import annotations`, Pydantic v2 stores annotations
+    # as strings and resolves them lazily. Inside a function the resolution
+    # context may be incomplete, so force a rebuild to compile the model schema
+    # correctly before FastAPI registers the routes.
+    NERRequest.model_rebuild()
+    NERResponse.model_rebuild()
+
+    return NERRequest, NERResponse
+
+
+# ---------------------------------------------------------------------------
 # FastAPI application (runs inside the service process)
 # ---------------------------------------------------------------------------
 
 def _make_app(model_name: str, device: str, batch_size: int) -> Any:
     from fastapi import FastAPI
-    from pydantic import BaseModel
+
+    NERRequest, NERResponse = _make_ner_models()
 
     app = FastAPI(title="NER Service")
     _pipeline: Any = None
-    _default_batch_size = batch_size  # capture before class body to avoid scoping issues
-
-    class NERRequest(BaseModel):
-        texts: list[str]
-        batch_size: int = _default_batch_size
-
-    class NERResponse(BaseModel):
-        results: list[list[dict]]
 
     @app.on_event("startup")
     def _load_model() -> None:
