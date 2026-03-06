@@ -31,10 +31,11 @@ def _make_app(model_name: str, device: str, batch_size: int) -> Any:
 
     app = FastAPI(title="NER Service")
     _pipeline: Any = None
+    _default_batch_size = batch_size  # capture before class body to avoid scoping issues
 
     class NERRequest(BaseModel):
         texts: list[str]
-        batch_size: int = batch_size
+        batch_size: int = _default_batch_size
 
     class NERResponse(BaseModel):
         results: list[list[dict]]
