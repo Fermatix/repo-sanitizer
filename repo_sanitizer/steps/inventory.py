@@ -59,7 +59,7 @@ def run_inventory(ctx: RunContext) -> list[InventoryItem]:
         json.dumps([i.to_dict() for i in items], indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
-    logger.info("Inventory: %d files catalogued", len(items))
+    logger.debug("Inventory: %d files catalogued", len(items))
     return items
 
 

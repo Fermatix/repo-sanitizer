@@ -23,6 +23,7 @@ from repo_sanitizer.batch.config import BatchConfig, ScopeConfig
 from repo_sanitizer.batch.gitlab_client import GitLabClient, RepoTask
 from repo_sanitizer.batch.ner_service import launch_ner_service
 from repo_sanitizer.batch.worker import RepoResult, process_repo
+from repo_sanitizer.rulepack import load_rulepack
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,24 @@ logger = logging.getLogger(__name__)
 # Public entry points
 # ---------------------------------------------------------------------------
 
+def _make_gitlab_client(config: BatchConfig, token: str) -> GitLabClient:
+    return GitLabClient(
+        url=config.gitlab.url,
+        token=token,
+        source_group=config.gitlab.source_group,
+        delivery_group=config.gitlab.delivery_group,
+    )
+
+
+def _get_token(config: BatchConfig) -> str:
+    token = os.environ.get(config.gitlab.token_env, "")
+    if not token:
+        raise ValueError(
+            f"GitLab token env var '{config.gitlab.token_env}' is not set or empty."
+        )
+    return token
+
+
 def run_batch(
     config: BatchConfig,
     override_partners: Optional[list[str]] = None,
@@ -38,18 +57,7 @@ def run_batch(
     retry_failed: bool = False,
 ) -> int:
     """Run the full batch pipeline. Returns 0 if all repos succeeded, 1 otherwise."""
-    token = os.environ.get(config.gitlab.token_env, "")
-    if not token:
-        raise ValueError(
-            f"GitLab token env var '{config.gitlab.token_env}' is not set or empty."
-        )
-
-    client = GitLabClient(
-        url=config.gitlab.url,
-        token=token,
-        source_group=config.gitlab.source_group,
-        delivery_group=config.gitlab.delivery_group,
-    )
+    client = _make_gitlab_client(config, _get_token(config))
 
     scope = _build_scope(config.scope, override_partners, override_repos)
     all_tasks = client.list_repos(scope)
@@ -67,13 +75,16 @@ def run_batch(
         config.processing.workers,
     )
 
-    # Pre-create delivery projects so workers don't race on group creation
+    # Pre-create delivery projects in parallel so workers don't race on group creation
     logger.info("Ensuring delivery projects exist...")
-    for task in tasks:
-        task.delivery_url = client.ensure_delivery_project(task.partner, task.name)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as pool:
+        fut_to_task = {
+            pool.submit(client.ensure_delivery_project, t.partner, t.name): t
+            for t in tasks
+        }
+        for fut in concurrent.futures.as_completed(fut_to_task):
+            fut_to_task[fut].delivery_url = fut.result()
 
-    # Load rulepack just to get NER config (model name + device)
-    from repo_sanitizer.rulepack import load_rulepack
     rulepack = load_rulepack(Path(config.rulepack).resolve())
 
     # Start shared NER service
@@ -84,6 +95,9 @@ def run_batch(
         port=config.processing.ner_service_port,
         batch_size=config.processing.ner_batch_size,
     )
+
+    # Create state directory once before the processing loop
+    config.output.state_file.parent.mkdir(parents=True, exist_ok=True)
 
     failed = 0
     try:
@@ -99,17 +113,7 @@ def run_batch(
 
 def list_repos(config: BatchConfig) -> list[RepoTask]:
     """Enumerate repos from GitLab without processing them."""
-    token = os.environ.get(config.gitlab.token_env, "")
-    if not token:
-        raise ValueError(
-            f"GitLab token env var '{config.gitlab.token_env}' is not set or empty."
-        )
-    client = GitLabClient(
-        url=config.gitlab.url,
-        token=token,
-        source_group=config.gitlab.source_group,
-        delivery_group=config.gitlab.delivery_group,
-    )
+    client = _make_gitlab_client(config, _get_token(config))
     return client.list_repos(config.scope)
 
 
@@ -124,6 +128,8 @@ def _run_workers(
 ) -> int:
     """Submit tasks to ProcessPoolExecutor, update state on completion. Returns fail count."""
     failed = 0
+    total = len(tasks)
+    width = len(str(total))
 
     with concurrent.futures.ProcessPoolExecutor(
         max_workers=config.processing.workers
@@ -132,9 +138,10 @@ def _run_workers(
             pool.submit(process_repo, task, config): task for task in tasks
         }
 
-        for future in concurrent.futures.as_completed(future_to_task):
+        for done, future in enumerate(concurrent.futures.as_completed(future_to_task), 1):
             task = future_to_task[future]
             key = f"{task.partner}/{task.name}"
+            prefix = f"[{done:{width}d}/{total}]"
             try:
                 result: RepoResult = future.result()
             except Exception as exc:
@@ -145,21 +152,18 @@ def _run_workers(
                     error=str(exc),
                 )
 
+            ts = _now()
             if result.success:
                 state[key] = {
                     "status": "done",
                     "bundle_sha256": result.bundle_sha256,
                     "exit_code": result.exit_code,
-                    "ts": _now(),
+                    "ts": ts,
                 }
-                logger.info("OK  %s", key)
+                logger.info("%s OK   %s", prefix, key)
             else:
-                state[key] = {
-                    "status": "failed",
-                    "error": result.error,
-                    "ts": _now(),
-                }
-                logger.error("FAIL %s — %s", key, result.error)
+                state[key] = {"status": "failed", "error": result.error, "ts": ts}
+                logger.warning("%s FAIL %s — %s", prefix, key, result.error)
                 failed += 1
 
             # Persist state after every repo (safe resume on crash)
@@ -213,7 +217,6 @@ def _load_state(state_file: Path) -> dict:
 
 
 def _save_state(state_file: Path, state: dict) -> None:
-    state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.write_text(
         json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8"
     )

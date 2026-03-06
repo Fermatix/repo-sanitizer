@@ -34,8 +34,10 @@ def _make_app(model_name: str, device: str, batch_size: int) -> Any:
     def _load_model() -> None:
         nonlocal _pipeline
         from transformers import pipeline as hf_pipeline
-        logger.info("Loading NER model '%s' on device '%s'", model_name, device)
-        if device == "auto":
+        from repo_sanitizer.detectors.ner import NERDetector
+        resolved = NERDetector._resolve_device(device)
+        logger.info("Loading NER model '%s' on device '%s'", model_name, resolved)
+        if resolved == "auto":
             _pipeline = hf_pipeline(
                 "ner",
                 model=model_name,
@@ -47,7 +49,7 @@ def _make_app(model_name: str, device: str, batch_size: int) -> Any:
                 "ner",
                 model=model_name,
                 aggregation_strategy="simple",
-                device=device,
+                device=resolved,
             )
         logger.info("NER model ready")
 
@@ -59,21 +61,26 @@ def _make_app(model_name: str, device: str, batch_size: int) -> Any:
     async def ner(request: Request) -> JSONResponse:
         body = await request.json()
         texts = body.get("texts", [])
-        results = []
-        for text in texts:
-            entities = _pipeline(text) if _pipeline is not None else []
-            results.append(
-                [
-                    {
-                        "entity_group": e.get("entity_group", ""),
-                        "score": float(e.get("score", 0)),
-                        "word": e.get("word", ""),
-                        "start": int(e.get("start", 0)),
-                        "end": int(e.get("end", 0)),
-                    }
-                    for e in entities
-                ]
-            )
+        if not texts or _pipeline is None:
+            return JSONResponse({"results": [[] for _ in texts]})
+        # Pass the full list for true GPU batching; pipeline returns list-of-lists
+        raw = _pipeline(texts, batch_size=batch_size)
+        # Defensive normalisation: single-string path returns a flat list
+        if texts and isinstance(raw[0], dict):
+            raw = [raw]
+        results = [
+            [
+                {
+                    "entity_group": e.get("entity_group", ""),
+                    "score": float(e.get("score", 0)),
+                    "word": e.get("word", ""),
+                    "start": int(e.get("start", 0)),
+                    "end": int(e.get("end", 0)),
+                }
+                for e in entities
+            ]
+            for entities in raw
+        ]
         return JSONResponse({"results": results})
 
     return app

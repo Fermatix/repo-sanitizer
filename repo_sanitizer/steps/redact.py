@@ -24,7 +24,7 @@ def run_redact(ctx: RunContext, findings: list[Finding]) -> list[dict]:
             file_path = ctx.work_dir / item.path
             if file_path.exists():
                 file_path.unlink()
-                logger.info("Deleted: %s", item.path)
+                logger.debug("Deleted: %s", item.path)
 
     # 2. Group findings by file
     findings_by_file: dict[str, list[Finding]] = {}
@@ -64,7 +64,7 @@ def run_redact(ctx: RunContext, findings: list[Finding]) -> list[dict]:
         redacted, manifest = apply_redactions(content, file_findings, ctx.salt)
         file_path.write_text(redacted, encoding="utf-8")
         all_manifest.extend(manifest)
-        logger.info("Redacted %d findings in %s", len(manifest), file_rel)
+        logger.debug("Redacted %d findings in %s", len(manifest), file_rel)
 
     ctx.redaction_manifest = all_manifest
 

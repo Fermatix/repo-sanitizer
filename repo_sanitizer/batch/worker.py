@@ -39,8 +39,9 @@ def process_repo(task: RepoTask, config: BatchConfig) -> RepoResult:
     It must be importable (no lambda/closures) and all arguments must be picklable.
     """
     logging.basicConfig(
-        level=logging.INFO,
-        format=f"%(asctime)s [{task.partner}/{task.name}] %(levelname)s %(message)s",
+        level=logging.WARNING,
+        format=f"%(asctime)s [{task.partner}/{task.name}] %(levelname)-5s %(message)s",
+        datefmt="%H:%M:%S",
     )
 
     work_dir = Path(config.processing.work_base_dir) / task.partner / task.name
@@ -106,8 +107,6 @@ def process_repo(task: RepoTask, config: BatchConfig) -> RepoResult:
 
 
 def _read_bundle_sha(result_json: Path) -> str:
-    if not result_json.exists():
-        return ""
     try:
         doc = json.loads(result_json.read_text(encoding="utf-8"))
         return doc.get("bundle_sha256", "")

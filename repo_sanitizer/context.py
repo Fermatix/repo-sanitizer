@@ -76,6 +76,7 @@ class RunContext:
         max_file_mb: int = 20,
         history_since: Optional[str] = None,
         history_until: Optional[str] = None,
+        ner_service_url: Optional[str] = None,
     ) -> RunContext:
         salt_value = os.environ.get(salt_env, "")
         if not salt_value:
@@ -99,4 +100,5 @@ class RunContext:
             max_file_mb=max_file_mb,
             history_since=history_since,
             history_until=history_until,
+            ner_service_url=ner_service_url,
         )

@@ -138,7 +138,7 @@ def run_scan(
         encoding="utf-8",
     )
 
-    logger.info("Scan '%s': %d findings", report_name, len(all_findings))
+    logger.debug("Scan '%s': %d findings", report_name, len(all_findings))
     return all_findings
 
 
@@ -163,7 +163,7 @@ def _log_extractor_summary(ts_files: list[str], fallback_files: list[str]) -> No
         if fallback_files
         else ""
     )
-    logger.info(
+    logger.debug(
         "Extractor summary: tree-sitter=%d/%d files (%d%%), fallback=%d%s",
         len(ts_files),
         total,

@@ -106,7 +106,7 @@ class GitLabClient:
         try:
             project = self.gl.projects.get(f"{namespace}/{repo_name}")
         except gitlab.exceptions.GitlabGetError:
-            logger.info("Creating delivery project %s/%s", namespace, repo_name)
+            logger.debug("Creating delivery project %s/%s", namespace, repo_name)
             project = self.gl.projects.create(
                 {
                     "name": repo_name,
@@ -124,7 +124,7 @@ class GitLabClient:
         try:
             return self.gl.groups.get(namespace)
         except gitlab.exceptions.GitlabGetError:
-            logger.info("Creating delivery group %s", namespace)
+            logger.debug("Creating delivery group %s", namespace)
             parent = self.gl.groups.get(self.delivery_group)
             return self.gl.groups.create(
                 {

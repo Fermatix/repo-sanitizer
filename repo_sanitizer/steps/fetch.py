@@ -20,7 +20,7 @@ def fetch(ctx: RunContext, source: str) -> None:
         shutil.rmtree(dest)
 
     if source_path.is_dir() and (source_path / ".git").is_dir():
-        logger.info("Cloning local repository %s → %s", source, dest)
+        logger.debug("Cloning local repository %s → %s", source, dest)
         subprocess.run(
             [
                 "git",
@@ -37,7 +37,7 @@ def fetch(ctx: RunContext, source: str) -> None:
         _fetch_all_refs(dest)
         materialize_local_branches(dest)
     elif source.startswith("http://") or source.startswith("https://") or source.startswith("git@"):
-        logger.info("Cloning remote repository %s → %s", source, dest)
+        logger.debug("Cloning remote repository %s → %s", source, dest)
         subprocess.run(
             ["git", "clone", "--no-single-branch", source, str(dest)],
             check=True,
@@ -47,7 +47,7 @@ def fetch(ctx: RunContext, source: str) -> None:
         _fetch_all_refs(dest)
         materialize_local_branches(dest)
     elif source_path.is_dir():
-        logger.info("Copying directory %s → %s", source, dest)
+        logger.debug("Copying directory %s → %s", source, dest)
         shutil.copytree(source_path, dest)
     else:
         raise ValueError(
@@ -63,7 +63,7 @@ def fetch(ctx: RunContext, source: str) -> None:
             text=True,
         )
 
-    logger.info("Source fetched to %s", dest)
+    logger.debug("Source fetched to %s", dest)
 
 
 def _fetch_all_refs(repo_dir: Path) -> None:

@@ -100,8 +100,10 @@ def run_gate_check(ctx: RunContext) -> dict:
     )
 
     for name, gate in results.items():
-        status = "PASS" if gate["passed"] else "FAIL"
-        logger.info("Gate %s: %s (failing: %d)", name, status, gate["failing_count"])
+        if gate["passed"]:
+            logger.debug("Gate %s: PASS", name)
+        else:
+            logger.warning("Gate %s FAIL: %d findings remain", name, gate["failing_count"])
 
     return result_doc
 

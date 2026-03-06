@@ -16,7 +16,7 @@ app.add_typer(batch_app, name="batch")
 def _setup_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        format="%(asctime)s %(levelname)-5s %(message)s",
         datefmt="%H:%M:%S",
     )
 
@@ -32,6 +32,15 @@ def _exit_for_missing_dependency(error: ModuleNotFoundError, feature: str) -> No
         package,
     )
     raise typer.Exit(code=1) from error
+
+
+def _load_batch_cfg(config: Path) -> "BatchConfig":
+    from repo_sanitizer.batch.config import load_batch_config
+    try:
+        return load_batch_config(config)
+    except Exception as e:
+        logging.getLogger(__name__).error("Cannot load batch config: %s", e)
+        raise typer.Exit(code=1)
 
 
 def _summarize_batch_error(error: Exception) -> str:
@@ -185,18 +194,12 @@ def batch_run(
 ) -> None:
     """Sanitize all matching GitLab repositories and push bundles to the delivery group."""
     _setup_logging()
-    from repo_sanitizer.batch.config import load_batch_config
     try:
         from repo_sanitizer.batch.orchestrator import run_batch
     except ModuleNotFoundError as e:
         _exit_for_missing_dependency(e, "batch mode")
 
-    try:
-        cfg = load_batch_config(config)
-    except Exception as e:
-        logging.getLogger(__name__).error("Cannot load batch config: %s", e)
-        raise typer.Exit(code=1)
-
+    cfg = _load_batch_cfg(config)
     try:
         exit_code = run_batch(
             config=cfg,
@@ -217,18 +220,12 @@ def batch_list(
 ) -> None:
     """List all repositories that would be processed according to the config scope."""
     _setup_logging()
-    from repo_sanitizer.batch.config import load_batch_config
     try:
         from repo_sanitizer.batch.orchestrator import list_repos
     except ModuleNotFoundError as e:
         _exit_for_missing_dependency(e, "batch mode")
 
-    try:
-        cfg = load_batch_config(config)
-    except Exception as e:
-        logging.getLogger(__name__).error("Cannot load batch config: %s", e)
-        raise typer.Exit(code=1)
-
+    cfg = _load_batch_cfg(config)
     try:
         tasks = list_repos(cfg)
     except Exception as e:
