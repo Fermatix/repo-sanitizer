@@ -72,6 +72,15 @@ uv tool install repo-sanitizer --dev
 pip install repo-sanitizer
 ```
 
+**Опциональные зависимости:**
+
+```bash
+# Все грамматики tree-sitter (~165 языков через один пакет)
+pip install "repo-sanitizer[grammars]"
+# или
+uv add tree-sitter-language-pack
+```
+
 ### Установка gitleaks
 
 ```bash
@@ -754,7 +763,19 @@ out/
 
 ## Расширение поддержки языков
 
-Добавить поддержку нового языка без изменения кода:
+### Способ 1: один пакет — 165+ языков (рекомендуется)
+
+`tree-sitter-language-pack` включает Vue, Astro, Nim, Odin и большинство языков, которые не опубликованы как отдельные PyPI-пакеты:
+
+```bash
+pip install tree-sitter-language-pack
+# или
+pip install "repo-sanitizer[grammars]"
+```
+
+После установки все языки из `extractors.yaml`, для которых нет отдельного pip-пакета, автоматически загружаются из `tree-sitter-language-pack` — без каких-либо изменений в конфигурации.
+
+### Способ 2: отдельный pip-пакет для языка
 
 ```bash
 # 1. Установить грамматику
@@ -774,6 +795,14 @@ uv add tree-sitter-ruby
 # 3. Проверить установку
 repo-sanitizer install-grammars --rulepack ./my-rules
 ```
+
+### Приоритет источников грамматик
+
+При загрузке грамматики для языка extractor проверяет источники в порядке приоритета:
+
+1. **Standalone-пакет** (`tree-sitter-ruby`, `tree-sitter-php`, …) — если установлен
+2. **`tree-sitter-language-pack`** — если standalone-пакет не установлен
+3. **`FallbackExtractor`** (regex-комментарии) — если ни один из источников недоступен
 
 > **Примечание для пакетов с нестандартным API** (например, `tree-sitter-typescript`): пакет экспортирует `language_typescript()` и `language_tsx()` вместо стандартного `language()`. Это поддерживается автоматически — указывайте `id: typescript` и `id: tsx` в `extractors.yaml`.
 

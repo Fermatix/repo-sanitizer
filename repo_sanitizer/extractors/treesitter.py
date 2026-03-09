@@ -18,6 +18,23 @@ class GrammarStatus:
     grammar_package: str
     installed: bool
     missing_attribute: str | None = None  # set when pkg installed but fn missing
+    via_language_pack: bool = False  # True when provided by tree-sitter-language-pack
+
+
+# Some lang.id values don't match tree-sitter-language-pack identifiers.
+_LANGUAGE_PACK_ID_OVERRIDES: dict[str, str] = {
+    # add overrides here as mismatches are discovered
+}
+
+
+def _try_language_pack(lang_id: str):
+    """Try to load a Language from tree-sitter-language-pack. Returns Language or None."""
+    try:
+        from tree_sitter_language_pack import get_language  # type: ignore[import]
+        pack_id = _LANGUAGE_PACK_ID_OVERRIDES.get(lang_id, lang_id)
+        return get_language(pack_id)
+    except Exception:
+        return None
 
 
 def check_grammar_packages(config: ExtractorConfig) -> list[GrammarStatus]:
@@ -46,11 +63,13 @@ def check_grammar_packages(config: ExtractorConfig) -> list[GrammarStatus]:
                     )
                 )
         except ImportError:
+            lp_lang = _try_language_pack(lang.id)
             statuses.append(
                 GrammarStatus(
                     language_id=lang.id,
                     grammar_package=lang.grammar_package,
-                    installed=False,
+                    installed=lp_lang is not None,
+                    via_language_pack=lp_lang is not None,
                 )
             )
     return statuses
@@ -768,18 +787,22 @@ class TreeSitterExtractor:
         pkg_name = lang.grammar_package.replace("-", "_")
         try:
             grammar_module = importlib.import_module(pkg_name)
+            fn_name = _GRAMMAR_FN_OVERRIDES.get(lang.id, "language")
+            if not hasattr(grammar_module, fn_name):
+                raise RuntimeError(
+                    f"Grammar package '{lang.grammar_package}' has no attribute '{fn_name}'. "
+                    f"Available: {[a for a in dir(grammar_module) if not a.startswith('_')]}"
+                )
+            ts_language = tree_sitter.Language(getattr(grammar_module, fn_name)())
         except ImportError:
-            raise RuntimeError(
-                f"Grammar package '{lang.grammar_package}' is not installed. "
-                f"Install with: pip install {lang.grammar_package}"
-            )
-        fn_name = _GRAMMAR_FN_OVERRIDES.get(lang.id, "language")
-        if not hasattr(grammar_module, fn_name):
-            raise RuntimeError(
-                f"Grammar package '{lang.grammar_package}' has no attribute '{fn_name}'. "
-                f"Available: {[a for a in dir(grammar_module) if not a.startswith('_')]}"
-            )
-        ts_language = tree_sitter.Language(getattr(grammar_module, fn_name)())
+            ts_language = _try_language_pack(lang.id)
+            if ts_language is None:
+                raise RuntimeError(
+                    f"Grammar package '{lang.grammar_package}' is not installed "
+                    f"(pip install {lang.grammar_package}) and language '{lang.id}' "
+                    f"is not available in tree-sitter-language-pack "
+                    f"(pip install tree-sitter-language-pack)"
+                )
         parser = tree_sitter.Parser(ts_language)
         self._parsers[lang.id] = (parser, ts_language, lang)
         return self._parsers[lang.id]

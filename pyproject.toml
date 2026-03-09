@@ -36,6 +36,9 @@ dev = [
     "pytest>=7.0",
     "pytest-tmp-files>=0.0.2",
 ]
+grammars = [
+    "tree-sitter-language-pack",
+]
 
 [tool.setuptools.packages.find]
 include = ["repo_sanitizer*"]
