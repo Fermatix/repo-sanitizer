@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from tqdm import tqdm
+
 from repo_sanitizer.batch.config import BatchConfig, ScopeConfig
 from repo_sanitizer.batch.gitlab_client import GitLabClient, RepoTask
 from repo_sanitizer.batch.ner_service import launch_ner_service
@@ -144,7 +146,6 @@ def _run_workers(
     failed = 0
     results: list[RepoResult] = []
     total = len(tasks)
-    width = len(str(total))
 
     with concurrent.futures.ProcessPoolExecutor(
         max_workers=config.processing.workers
@@ -153,10 +154,16 @@ def _run_workers(
             pool.submit(process_repo, task, config): task for task in tasks
         }
 
-        for done, future in enumerate(concurrent.futures.as_completed(future_to_task), 1):
+        bar = tqdm(
+            concurrent.futures.as_completed(future_to_task),
+            total=total,
+            unit="repo",
+            desc="Batch",
+            dynamic_ncols=True,
+        )
+        for future in bar:
             task = future_to_task[future]
             key = f"{task.partner}/{task.name}"
-            prefix = f"[{done:{width}d}/{total}]"
             try:
                 result: RepoResult = future.result()
             except Exception as exc:
@@ -177,11 +184,15 @@ def _run_workers(
                     "pushed": result.pushed,
                     "ts": ts,
                 }
-                logger.info("%s OK   %s", prefix, key)
+                bar.write(f"  OK   {key}")
+                logger.info("OK   %s", key)
             else:
                 state[key] = {"status": "failed", "error": result.error, "ts": ts}
-                logger.warning("%s FAIL %s — %s", prefix, key, result.error)
+                bar.write(f"  FAIL {key} — {result.error}")
+                logger.warning("FAIL %s — %s", key, result.error)
                 failed += 1
+
+            bar.set_postfix(ok=len(results) - failed, fail=failed)
 
             # Persist state after every repo (safe resume on crash)
             _save_state(config.output.state_file, state)

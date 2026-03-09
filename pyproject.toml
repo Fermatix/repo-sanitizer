@@ -26,6 +26,8 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
     "httpx>=0.27",
+    "tqdm>=4.66",
+    "pip>=26.0.1",
 ]
 
 [project.scripts]
