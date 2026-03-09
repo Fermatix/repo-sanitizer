@@ -10,6 +10,7 @@ import logging
 import os
 import shutil
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 from repo_sanitizer.batch.config import BatchConfig
@@ -25,6 +26,7 @@ class RepoResult:
     success: bool
     exit_code: int = -1
     bundle_sha256: str = ""
+    pushed: bool = False
     error: str = ""
 
     @property
@@ -47,6 +49,11 @@ def process_repo(task: RepoTask, config: BatchConfig) -> RepoResult:
     work_dir = Path(config.processing.work_base_dir) / task.partner / task.name
     out_dir = work_dir / "out"
     artifacts_dir = Path(config.output.artifacts_dir) / task.partner / task.name
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+    exit_code = -1
+    bundle_sha256 = ""
+    pushed = False
 
     try:
         from repo_sanitizer.pipeline import run_sanitize
@@ -64,7 +71,6 @@ def process_repo(task: RepoTask, config: BatchConfig) -> RepoResult:
         # Copy artifacts to persistent location
         src_artifacts = out_dir / "artifacts"
         if src_artifacts.exists():
-            artifacts_dir.mkdir(parents=True, exist_ok=True)
             shutil.copytree(src_artifacts, artifacts_dir, dirs_exist_ok=True)
 
         # Read bundle SHA for state tracking
@@ -83,27 +89,52 @@ def process_repo(task: RepoTask, config: BatchConfig) -> RepoResult:
             task.partner, task.name
         )
         client.push_bundle(bundle_path, delivery_url)
+        pushed = True
 
-        return RepoResult(
+        result = RepoResult(
             partner=task.partner,
             name=task.name,
             success=True,
             exit_code=exit_code,
             bundle_sha256=bundle_sha256,
+            pushed=True,
         )
 
     except Exception as exc:
         logger.exception("Failed to process %s/%s", task.partner, task.name)
-        return RepoResult(
+        result = RepoResult(
             partner=task.partner,
             name=task.name,
             success=False,
+            exit_code=exit_code,
+            bundle_sha256=bundle_sha256,
+            pushed=pushed,
             error=str(exc),
         )
 
     finally:
+        _write_batch_result(artifacts_dir, result)
         if not config.processing.keep_work_dirs and work_dir.exists():
             shutil.rmtree(work_dir, ignore_errors=True)
+
+    return result
+
+
+def _write_batch_result(artifacts_dir: Path, result: RepoResult) -> None:
+    """Write per-repo batch_result.json with sanitize + push outcome."""
+    doc = {
+        "partner": result.partner,
+        "name": result.name,
+        "status": "done" if result.success else "failed",
+        "exit_code": result.exit_code,
+        "bundle_sha256": result.bundle_sha256,
+        "pushed": result.pushed,
+        "error": result.error,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
+    (artifacts_dir / "batch_result.json").write_text(
+        json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 def _read_bundle_sha(result_json: Path) -> str:

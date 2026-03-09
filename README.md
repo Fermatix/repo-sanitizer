@@ -318,15 +318,67 @@ Orchestrator
 
 ```json
 {
-  "acme-corp/backend-api": {"status": "done", "bundle_sha256": "abc...", "ts": "..."},
+  "acme-corp/backend-api": {"status": "done", "bundle_sha256": "abc...", "exit_code": 0, "pushed": true, "ts": "..."},
   "acme-corp/frontend": {"status": "failed", "error": "gitleaks not found", "ts": "..."},
-  "big-co/service": {"status": "done", "bundle_sha256": "def...", "ts": "..."}
+  "big-co/service": {"status": "done", "bundle_sha256": "def...", "exit_code": 0, "pushed": true, "ts": "..."}
 }
 ```
 
 - `done` — пропускается при повторном запуске
 - `failed` — пропускается, обрабатывается с `--retry-failed`
 - При падении процесса — возобновляется с того же места
+
+### Артефакты batch-режима
+
+После завершения прогона структура `artifacts_dir` выглядит следующим образом:
+
+```
+batch-artifacts/
+├── batch_summary.json          # сводка по всему запуску
+├── acme-corp/
+│   └── backend-api/
+│       ├── batch_result.json   # результат обработки этого репозитория
+│       ├── result.json         # гейты, SHA бандла, timings
+│       ├── inventory.json
+│       ├── scan_report_pre.json
+│       └── ...
+└── big-co/
+    └── service/
+        ├── batch_result.json
+        └── ...
+```
+
+**`batch_result.json`** — записывается всегда (включая упавшие репозитории):
+
+```json
+{
+  "partner": "acme-corp",
+  "name": "backend-api",
+  "status": "done",
+  "exit_code": 0,
+  "bundle_sha256": "abc123...",
+  "pushed": true,
+  "error": "",
+  "ts": "2026-03-09T12:34:56+00:00"
+}
+```
+
+**`batch_summary.json`** — сводка по всему запуску, перезаписывается при каждом прогоне:
+
+```json
+{
+  "started_at": "2026-03-09T10:00:00+00:00",
+  "finished_at": "2026-03-09T12:34:56+00:00",
+  "total": 42,
+  "succeeded": 40,
+  "failed": 2,
+  "pushed": 40,
+  "repos": [
+    {"partner": "acme-corp", "name": "backend-api", "status": "done", "exit_code": 0, "pushed": true, "bundle_sha256": "abc...", "error": ""},
+    {"partner": "acme-corp", "name": "frontend", "status": "failed", "exit_code": -1, "pushed": false, "bundle_sha256": "", "error": "gitleaks not found"}
+  ]
+}
+```
 
 ---
 

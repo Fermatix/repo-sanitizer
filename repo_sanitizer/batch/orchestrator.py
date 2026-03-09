@@ -107,14 +107,17 @@ def run_batch(
     # Create state directory once before the processing loop
     config.output.state_file.parent.mkdir(parents=True, exist_ok=True)
 
+    started_at = _now()
     failed = 0
+    results: list[RepoResult] = []
     try:
-        failed = _run_workers(tasks, config, state)
+        failed, results = _run_workers(tasks, config, state)
     finally:
         ner_proc.terminate()
         ner_proc.join(timeout=5)
 
     _save_state(config.output.state_file, state)
+    _save_batch_summary(config, results, started_at)
     logger.info("Batch complete. Failed: %d / %d", failed, len(tasks))
     return 0 if failed == 0 else 1
 
@@ -133,9 +136,13 @@ def _run_workers(
     tasks: list[RepoTask],
     config: BatchConfig,
     state: dict,
-) -> int:
-    """Submit tasks to ProcessPoolExecutor, update state on completion. Returns fail count."""
+) -> tuple[int, list[RepoResult]]:
+    """Submit tasks to ProcessPoolExecutor, update state on completion.
+
+    Returns (fail_count, all_results).
+    """
     failed = 0
+    results: list[RepoResult] = []
     total = len(tasks)
     width = len(str(total))
 
@@ -160,12 +167,14 @@ def _run_workers(
                     error=str(exc),
                 )
 
+            results.append(result)
             ts = _now()
             if result.success:
                 state[key] = {
                     "status": "done",
                     "bundle_sha256": result.bundle_sha256,
                     "exit_code": result.exit_code,
+                    "pushed": result.pushed,
                     "ts": ts,
                 }
                 logger.info("%s OK   %s", prefix, key)
@@ -177,7 +186,46 @@ def _run_workers(
             # Persist state after every repo (safe resume on crash)
             _save_state(config.output.state_file, state)
 
-    return failed
+    return failed, results
+
+
+def _save_batch_summary(
+    config: BatchConfig,
+    results: list[RepoResult],
+    started_at: str,
+) -> None:
+    """Write batch_summary.json to artifacts_dir with aggregate stats for this run."""
+    total = len(results)
+    succeeded = sum(1 for r in results if r.success)
+    pushed = sum(1 for r in results if r.pushed)
+
+    summary = {
+        "started_at": started_at,
+        "finished_at": _now(),
+        "total": total,
+        "succeeded": succeeded,
+        "failed": total - succeeded,
+        "pushed": pushed,
+        "repos": [
+            {
+                "partner": r.partner,
+                "name": r.name,
+                "status": "done" if r.success else "failed",
+                "exit_code": r.exit_code,
+                "bundle_sha256": r.bundle_sha256,
+                "pushed": r.pushed,
+                "error": r.error,
+            }
+            for r in results
+        ],
+    }
+
+    summary_path = Path(config.output.artifacts_dir) / "batch_summary.json"
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_path.write_text(
+        json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    logger.info("Batch summary → %s", summary_path)
 
 
 def _build_scope(

@@ -325,10 +325,15 @@ orchestrator.run_batch()
     │         └── Worker-N: process_repo(task_N)
     │               │
     │               ├── run_sanitize(clone_url, ner_service_url=http://127.0.0.1:port)
-    │               └── GitLabClient.push_bundle(bundle_path, delivery_url)
+    │               ├── GitLabClient.push_bundle(bundle_path, delivery_url)
+    │               └── _write_batch_result(artifacts_dir/<partner>/<name>/batch_result.json)
+    │                        ← записывается всегда (успех или ошибка)
     │
-    └── 6. ner_proc.terminate()
-              └── batch_state.json (обновляется после каждого репо)
+    ├── 6. ner_proc.terminate()
+    │         └── batch_state.json (обновляется после каждого репо)
+    │
+    └── 7. _save_batch_summary()
+              └── batch_summary.json (сводка по всему запуску)
 ```
 
 ### NERDetector: локальный vs HTTP-режим
@@ -361,12 +366,31 @@ POST /ner     → {"texts": ["chunk1", "chunk2"]}
 
 ```json
 {
-  "partner/repo": {"status": "done",   "bundle_sha256": "abc...", "ts": "..."},
-  "partner/repo": {"status": "failed", "error": "...",             "ts": "..."}
+  "partner/repo": {"status": "done",   "bundle_sha256": "abc...", "exit_code": 0, "pushed": true, "ts": "..."},
+  "partner/repo": {"status": "failed", "error": "...",                                              "ts": "..."}
 }
 ```
 
 Статус `running` от прерванного прогона трактуется как `failed` и перезапускается.
+
+### Артефакты batch-режима
+
+Каждый воркер всегда (в том числе при ошибке) пишет `batch_result.json` в `artifacts_dir/<partner>/<name>/`:
+
+```json
+{
+  "partner": "acme-corp",
+  "name": "backend-api",
+  "status": "done",
+  "exit_code": 0,
+  "bundle_sha256": "abc...",
+  "pushed": true,
+  "error": "",
+  "ts": "2026-03-09T12:34:56+00:00"
+}
+```
+
+По завершении прогона оркестратор записывает `artifacts_dir/batch_summary.json` с агрегатными счётчиками (`total`, `succeeded`, `failed`, `pushed`) и перечнем всех репозиториев из текущего запуска. Файл перезаписывается при каждом прогоне.
 
 ### Рекомендованные параметры для Threadripper + RTX 2080 Ti
 
