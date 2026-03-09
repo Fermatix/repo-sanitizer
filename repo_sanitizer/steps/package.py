@@ -12,6 +12,10 @@ from repo_sanitizer.steps._git_utils import materialize_local_branches
 logger = logging.getLogger(__name__)
 
 
+class EmptyRepositoryError(RuntimeError):
+    """Raised when the repository has no commits and a bundle cannot be created."""
+
+
 def run_package(ctx: RunContext) -> Path:
     """Create a git bundle from the sanitized repository."""
     output_dir = ctx.out_dir / "output"
@@ -21,6 +25,18 @@ def run_package(ctx: RunContext) -> Path:
     # Ensure every origin/* branch is represented as a local refs/heads/*
     # so the bundle advertises full branch topology, not only remotes.
     materialize_local_branches(ctx.work_dir)
+
+    # Detect empty repository (no commits) before attempting to bundle.
+    check = subprocess.run(
+        ["git", "rev-list", "--max-count=1", "--all"],
+        cwd=str(ctx.work_dir),
+        capture_output=True,
+        text=True,
+    )
+    if not check.stdout.strip():
+        raise EmptyRepositoryError(
+            f"Repository at {ctx.work_dir} has no commits; skipping bundle."
+        )
 
     # Commit any pending changes
     subprocess.run(

@@ -107,15 +107,19 @@ class GitLabClient:
             project = self.gl.projects.get(f"{namespace}/{repo_name}")
         except gitlab.exceptions.GitlabGetError:
             logger.debug("Creating delivery project %s/%s", namespace, repo_name)
-            project = self.gl.projects.create(
-                {
-                    "name": repo_name,
-                    "path": repo_name,
-                    "namespace_id": partner_group.id,
-                    "visibility": "private",
-                    "initialize_with_readme": False,
-                }
-            )
+            try:
+                project = self.gl.projects.create(
+                    {
+                        "name": repo_name,
+                        "path": repo_name,
+                        "namespace_id": partner_group.id,
+                        "visibility": "private",
+                        "initialize_with_readme": False,
+                    }
+                )
+            except gitlab.exceptions.GitlabCreateError:
+                # Another worker created the project concurrently — fetch it.
+                project = self.gl.projects.get(f"{namespace}/{repo_name}")
 
         return self._auth_url(project.http_url_to_repo)
 
@@ -124,8 +128,10 @@ class GitLabClient:
         try:
             return self.gl.groups.get(namespace)
         except gitlab.exceptions.GitlabGetError:
-            logger.debug("Creating delivery group %s", namespace)
-            parent = self.gl.groups.get(self.delivery_group)
+            pass
+        logger.debug("Creating delivery group %s", namespace)
+        parent = self.gl.groups.get(self.delivery_group)
+        try:
             return self.gl.groups.create(
                 {
                     "name": partner,
@@ -134,6 +140,9 @@ class GitLabClient:
                     "visibility": "private",
                 }
             )
+        except gitlab.exceptions.GitlabCreateError:
+            # Another worker created the group concurrently — fetch it.
+            return self.gl.groups.get(namespace)
 
     # ------------------------------------------------------------------
     # Bundle push

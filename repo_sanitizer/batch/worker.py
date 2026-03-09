@@ -101,16 +101,27 @@ def process_repo(task: RepoTask, config: BatchConfig) -> RepoResult:
         )
 
     except Exception as exc:
-        logger.exception("Failed to process %s/%s", task.partner, task.name)
-        result = RepoResult(
-            partner=task.partner,
-            name=task.name,
-            success=False,
-            exit_code=exit_code,
-            bundle_sha256=bundle_sha256,
-            pushed=pushed,
-            error=str(exc),
-        )
+        from repo_sanitizer.steps.package import EmptyRepositoryError
+        if isinstance(exc, EmptyRepositoryError):
+            logger.warning("Skipping %s/%s: %s", task.partner, task.name, exc)
+            result = RepoResult(
+                partner=task.partner,
+                name=task.name,
+                success=True,
+                exit_code=0,
+                error="skipped: empty repository",
+            )
+        else:
+            logger.exception("Failed to process %s/%s", task.partner, task.name)
+            result = RepoResult(
+                partner=task.partner,
+                name=task.name,
+                success=False,
+                exit_code=exit_code,
+                bundle_sha256=bundle_sha256,
+                pushed=pushed,
+                error=str(exc),
+            )
 
     finally:
         _write_batch_result(artifacts_dir, result)
