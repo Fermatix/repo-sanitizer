@@ -58,28 +58,661 @@ def check_grammar_packages(config: ExtractorConfig) -> list[GrammarStatus]:
 # Some grammar packages don't export the generic `language()` function.
 # Map language id → actual exported function name.
 _GRAMMAR_FN_OVERRIDES: dict[str, str] = {
-    "typescript": "language_typescript",
-    "tsx": "language_tsx",
+    "typescript":       "language_typescript",
+    "tsx":              "language_tsx",
+    "ocaml":            "language_ocaml",
+    "ocaml_interface":  "language_ocaml_interface",
+    "xml":              "language_xml",
+    "dtd":              "language_dtd",
+    "markdown":         "language_markdown",
+    "wat":              "language_wat",
+    "apex":             "language_apex",
+    "php":              "language_php",
 }
 
 NODE_TYPE_MAP = {
+    # ── Python ────────────────────────────────────────────────────────────
     "python": {
-        "comment_line": ["comment"],
+        "comment_line":  ["comment"],
         "comment_block": ["comment"],
-        "docstring": ["string", "concatenated_string"],
-        "string_literal": ["string", "concatenated_string"],
+        "docstring":     ["string", "concatenated_string"],
+        "string_literal":["string", "concatenated_string"],
     },
+    # ── JavaScript / TypeScript ───────────────────────────────────────────
     "javascript": {
-        "comment_line": ["comment"],
-        "comment_block": ["comment"],
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
         "string_literal": ["string", "string_fragment"],
         "template_literal": ["template_string"],
     },
     "typescript": {
-        "comment_line": ["comment"],
-        "comment_block": ["comment"],
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
         "string_literal": ["string", "string_fragment"],
         "template_literal": ["template_string"],
+    },
+    "tsx": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string", "string_fragment"],
+        "template_literal": ["template_string"],
+    },
+    # ── Web UI ────────────────────────────────────────────────────────────
+    "html": {
+        "comment_block":  ["comment"],
+        "string_literal": ["attribute_value", "raw_text"],
+    },
+    "css": {
+        "comment_block":  ["comment"],
+        "string_literal": ["string_value"],
+    },
+    "scss": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string_value"],
+    },
+    "svelte": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+        "template_literal": ["template_string"],
+    },
+    "vue": {
+        "comment_block":  ["comment"],
+        "string_literal": ["attribute_value", "string"],
+        "template_literal": ["template_string"],
+    },
+    "astro": {
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+        "template_literal": ["template_string"],
+    },
+    "twig": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    "heex": {
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    "embedded_template": {
+        "string_literal": ["string"],
+    },
+    # ── C family ─────────────────────────────────────────────────────────
+    "c": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string_literal", "concatenated_string"],
+    },
+    "cpp": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string_literal", "concatenated_string", "raw_string_literal"],
+    },
+    "c_sharp": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string_literal", "verbatim_string_expression",
+                           "interpolated_verbatim_string_expression"],
+    },
+    "cuda": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string_literal", "concatenated_string"],
+    },
+    "objc": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string_literal", "ns_string_expression"],
+    },
+    # ── Systems ───────────────────────────────────────────────────────────
+    "rust": {
+        "comment_line":   ["line_comment"],
+        "comment_block":  ["block_comment"],
+        "string_literal": ["string_literal", "raw_string_literal"],
+    },
+    "go": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["interpreted_string_literal", "raw_string_literal"],
+    },
+    "zig": {
+        "comment_line":   ["comment", "line_comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string_literal", "multiline_string_literal"],
+    },
+    "odin": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["block_comment"],
+        "string_literal": ["interpreted_string_literal", "raw_string_literal"],
+    },
+    "v": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["block_comment"],
+        "string_literal": ["interpreted_string", "c_string", "raw_string"],
+    },
+    "nim": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string_literal"],
+    },
+    "d": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    "hare": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    "asm": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    # ── JVM ───────────────────────────────────────────────────────────────
+    "java": {
+        "comment_line":   ["line_comment"],
+        "comment_block":  ["block_comment"],
+        "string_literal": ["string_literal"],
+    },
+    "kotlin": {
+        "comment_line":   ["line_comment"],
+        "comment_block":  ["multiline_comment"],
+        "string_literal": ["string_literal", "multiline_string_literal"],
+    },
+    "scala": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["block_comment"],
+        "string_literal": ["string", "multiline_string_literal"],
+    },
+    "groovy": {
+        "comment_line":   ["line_comment"],
+        "comment_block":  ["block_comment"],
+        "string_literal": ["string_literal"],
+        "template_literal": ["gstring"],
+    },
+    # ── Apple / Mobile ────────────────────────────────────────────────────
+    "swift": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["multiline_comment"],
+        "string_literal": ["line_string_literal", "multi_line_string_literal"],
+    },
+    "dart": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string_literal"],
+    },
+    # ── Scripting ─────────────────────────────────────────────────────────
+    "ruby": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string", "heredoc_body"],
+    },
+    "php": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string", "encapsed_string", "heredoc_body", "nowdoc_body"],
+    },
+    "perl": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string_single_quoted", "string_double_quoted", "heredoc_body"],
+    },
+    "lua": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    "luau": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    "tcl": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    "gdscript": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    "qmljs": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+        "template_literal": ["template_string"],
+    },
+    "squirrel": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    # ── Shell ─────────────────────────────────────────────────────────────
+    "bash": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string", "raw_string", "ansi_c_string"],
+    },
+    "fish": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    "powershell": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["single_quoted_string", "double_quoted_string",
+                           "expandable_string_literal"],
+    },
+    # ── Functional ────────────────────────────────────────────────────────
+    "haskell": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    "ocaml": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    "ocaml_interface": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    "fsharp": {
+        "comment_line":   ["comment", "line_comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    "elixir": {
+        "comment_line":   ["comment"],
+        "docstring":      ["string"],
+        "string_literal": ["string", "charlist"],
+    },
+    "erlang": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    "elm": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["block_comment"],
+        "string_literal": ["string", "triple_string"],
+    },
+    "purescript": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    "clojure": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    "scheme": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["block_comment"],
+        "string_literal": ["string"],
+    },
+    "racket": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["block_comment"],
+        "string_literal": ["string"],
+    },
+    "commonlisp": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    "fennel": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    "janet": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    "elisp": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    "haxe": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    "gleam": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    "pony": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["block_comment"],
+        "string_literal": ["string"],
+    },
+    "agda": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    "hack": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    # ── Data science / Scientific ─────────────────────────────────────────
+    "r": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    "julia": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["block_comment"],
+        "docstring":      ["string_literal"],
+        "string_literal": ["string_literal"],
+    },
+    "matlab": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    # ── Legacy ────────────────────────────────────────────────────────────
+    "cobol": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string_literal"],
+    },
+    "fortran": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string_literal"],
+    },
+    "ada": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string_literal"],
+    },
+    "pascal": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    "actionscript": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    # ── Enterprise / Platforms ────────────────────────────────────────────
+    "apex": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string_literal"],
+    },
+    "bsl": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    "arduino": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string_literal"],
+    },
+    "magik": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    # ── Build / Config ────────────────────────────────────────────────────
+    "gomod": {
+        "comment_line":   ["comment"],
+        "string_literal": ["interpreted_string"],
+    },
+    "gosum": {
+        "string_literal": ["string"],
+    },
+    "cmake": {
+        "comment_line":   ["line_comment"],
+        "comment_block":  ["bracket_comment"],
+        "string_literal": ["quoted_argument", "bracket_argument"],
+    },
+    "make": {
+        "comment_line":   ["comment"],
+        "string_literal": [],
+    },
+    "meson": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    "ninja": {
+        "comment_line":   ["comment"],
+        "string_literal": [],
+    },
+    "starlark": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    "nix": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string_expression", "indented_string_expression"],
+    },
+    "bitbake": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    "puppet": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    "gn": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    "hcl": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["template_literal", "literal_value"],
+    },
+    "bicep": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    "prisma": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    "rego": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    "dockerfile": {
+        "comment_line":   ["comment"],
+        "string_literal": ["double_quoted_string", "single_quoted_string", "unquoted_string"],
+    },
+    "beancount": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    # ── Data formats ──────────────────────────────────────────────────────
+    "yaml": {
+        "comment_line":   ["comment"],
+        "string_literal": ["block_scalar", "string_scalar",
+                           "double_quote_scalar", "single_quote_scalar"],
+    },
+    "toml": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string", "literal_string",
+                           "multiline_basic_string", "multiline_literal_string"],
+    },
+    "json": {
+        "string_literal": ["string"],
+    },
+    "jsonnet": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["block_comment"],
+        "string_literal": ["string"],
+    },
+    "ini": {
+        "comment_line":   ["comment"],
+        "string_literal": ["value"],
+    },
+    "properties": {
+        "comment_line":   ["comment"],
+        "string_literal": ["value"],
+    },
+    "ron": {
+        "comment_line":   ["line_comment"],
+        "comment_block":  ["block_comment"],
+        "string_literal": ["string"],
+    },
+    "kdl": {
+        "comment_line":   ["single_line_comment"],
+        "comment_block":  ["multi_line_comment"],
+        "string_literal": ["string"],
+    },
+    # ── Query / Schema ────────────────────────────────────────────────────
+    "sql": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    "graphql": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string_value", "description"],
+    },
+    "sparql": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string_literal"],
+    },
+    "proto": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    "smithy": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    "thrift": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string_literal"],
+    },
+    "capnp": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    # ── Markup / Docs ─────────────────────────────────────────────────────
+    "xml": {
+        "comment_block":  ["comment"],
+        "string_literal": ["attribute_value", "content"],
+    },
+    "dtd": {
+        "comment_block":  ["pi"],
+        "string_literal": ["quoted_value"],
+    },
+    "markdown": {
+        "comment_block":  ["html_block"],
+        "string_literal": ["code_span"],
+    },
+    "latex": {
+        "comment_line":   ["comment"],
+        "string_literal": ["text", "curly_group"],
+    },
+    "rst": {
+        "comment_line":   ["comment"],
+        "string_literal": ["inline_markup"],
+    },
+    "org": {
+        "comment_line":   ["comment"],
+        "string_literal": ["str"],
+    },
+    "bibtex": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string_value"],
+    },
+    "po": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    # ── Shader / GPU ──────────────────────────────────────────────────────
+    "glsl": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string_literal"],
+    },
+    "hlsl": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string_literal"],
+    },
+    "wgsl": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["block_comment"],
+    },
+    "slang": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string_literal"],
+    },
+    # ── Hardware / EDA ────────────────────────────────────────────────────
+    "verilog": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string_literal"],
+    },
+    "vhdl": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string_literal"],
+    },
+    "llvm": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    # ── WebAssembly ───────────────────────────────────────────────────────
+    "wat": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["block_comment"],
+        "string_literal": ["string"],
+    },
+    # ── Blockchain ────────────────────────────────────────────────────────
+    "solidity": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    "cairo": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    "clarity": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    "func": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["comment"],
+        "string_literal": ["string"],
+    },
+    # ── Other ─────────────────────────────────────────────────────────────
+    "rbs": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    "pem": {
+        "string_literal": ["data"],
+    },
+    "vim": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string", "literal_string"],
+    },
+    "smali": {
+        "comment_line":   ["comment"],
+        "string_literal": ["string"],
+    },
+    "typst": {
+        "comment_line":   ["comment"],
+        "comment_block":  ["block_comment"],
+        "string_literal": ["string"],
     },
 }
 

@@ -186,8 +186,8 @@ binary_allow_extensions:
 
 # ── NER (Named-Entity Recognition) ───────────────────────────────────────
 ner:
-  model: Davlan/xlm-roberta-large-ner-hrl
-  min_score: 0.7
+  model: Babelscape/wikineural-multilingual-ner
+  min_score: 0.6
   entity_types: [PER, ORG]
 
   device: cuda:0
