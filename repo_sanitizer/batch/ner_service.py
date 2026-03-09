@@ -23,45 +23,77 @@ logger = logging.getLogger(__name__)
 # FastAPI application (runs inside the service process)
 # ---------------------------------------------------------------------------
 
-def _make_app(model_name: str, device: str, batch_size: int) -> Any:
+def _make_app(model_name: str, device: str, batch_size: int, backend: str = "transformers") -> Any:
     from fastapi import FastAPI, Request
     from fastapi.responses import JSONResponse
 
     app = FastAPI(title="NER Service")
     _pipeline: Any = None
+    _gliner: Any = None
 
     @app.on_event("startup")
     def _load_model() -> None:
-        nonlocal _pipeline
-        from transformers import pipeline as hf_pipeline
-        from repo_sanitizer.detectors.ner import NERDetector
-        resolved = NERDetector._resolve_device(device)
-        logger.info("Loading NER model '%s' on device '%s'", model_name, resolved)
-        if resolved == "auto":
-            _pipeline = hf_pipeline(
-                "ner",
-                model=model_name,
-                aggregation_strategy="simple",
-                device_map="auto",
-            )
+        nonlocal _pipeline, _gliner
+        from repo_sanitizer.detectors.ner import NERDetector, GLINER_LABEL_MAP, _GLINER_LABEL_REVERSE
+        if backend == "gliner":
+            from gliner import GLiNER
+            logger.info("Loading GLiNER model '%s'", model_name)
+            _gliner = GLiNER.from_pretrained(model_name)
+            logger.info("GLiNER model ready")
         else:
-            _pipeline = hf_pipeline(
-                "ner",
-                model=model_name,
-                aggregation_strategy="simple",
-                device=resolved,
-            )
-        logger.info("NER model ready")
+            from transformers import pipeline as hf_pipeline
+            resolved = NERDetector._resolve_device(device)
+            logger.info("Loading NER model '%s' on device '%s'", model_name, resolved)
+            if resolved == "auto":
+                _pipeline = hf_pipeline(
+                    "ner",
+                    model=model_name,
+                    aggregation_strategy="simple",
+                    device_map="auto",
+                )
+            else:
+                _pipeline = hf_pipeline(
+                    "ner",
+                    model=model_name,
+                    aggregation_strategy="simple",
+                    device=resolved,
+                )
+            logger.info("NER model ready")
 
     @app.get("/health")
     def health() -> JSONResponse:
-        return JSONResponse({"status": "ready" if _pipeline is not None else "loading"})
+        ready = (_gliner is not None) if backend == "gliner" else (_pipeline is not None)
+        return JSONResponse({"status": "ready" if ready else "loading"})
 
     @app.post("/ner")
     async def ner(request: Request) -> JSONResponse:
+        from repo_sanitizer.detectors.ner import GLINER_LABEL_MAP, _GLINER_LABEL_REVERSE, LABEL_MAP
         body = await request.json()
         texts = body.get("texts", [])
-        if not texts or _pipeline is None:
+        if not texts:
+            return JSONResponse({"results": [[] for _ in texts]})
+
+        if backend == "gliner":
+            if _gliner is None:
+                return JSONResponse({"results": [[] for _ in texts]})
+            labels = list(GLINER_LABEL_MAP.values())
+            results = []
+            for text in texts:
+                entities = _gliner.predict_entities(text, labels)
+                converted = []
+                for ent in entities:
+                    code = _GLINER_LABEL_REVERSE.get(ent["label"], ent["label"].upper())
+                    converted.append({
+                        "entity_group": code,
+                        "score": float(ent["score"]),
+                        "word": ent["text"],
+                        "start": int(ent["start"]),
+                        "end": int(ent["end"]),
+                    })
+                results.append(converted)
+            return JSONResponse({"results": results})
+
+        if _pipeline is None:
             return JSONResponse({"results": [[] for _ in texts]})
         # Pass the full list for true GPU batching; pipeline returns list-of-lists
         raw = _pipeline(texts, batch_size=batch_size)
@@ -86,7 +118,7 @@ def _make_app(model_name: str, device: str, batch_size: int) -> Any:
     return app
 
 
-def _run_server(model_name: str, device: str, port: int, batch_size: int) -> None:
+def _run_server(model_name: str, device: str, port: int, batch_size: int, backend: str = "transformers") -> None:
     """Entry point for the service subprocess."""
     import uvicorn
 
@@ -98,7 +130,7 @@ def _run_server(model_name: str, device: str, port: int, batch_size: int) -> Non
     for name in ("transformers", "filelock", "huggingface_hub", "urllib3", "httpx"):
         logging.getLogger(name).setLevel(logging.ERROR)
 
-    app = _make_app(model_name, device, batch_size)
+    app = _make_app(model_name, device, batch_size, backend)
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
@@ -112,6 +144,7 @@ def launch_ner_service(
     port: int,
     batch_size: int = 32,
     timeout: float = 180.0,
+    backend: str = "transformers",
 ) -> multiprocessing.Process:
     """Start the NER service in a daemon subprocess and wait until it's ready.
 
@@ -120,7 +153,7 @@ def launch_ner_service(
     """
     proc = multiprocessing.Process(
         target=_run_server,
-        args=(model_name, device, port, batch_size),
+        args=(model_name, device, port, batch_size, backend),
         daemon=True,
         name="ner-service",
     )

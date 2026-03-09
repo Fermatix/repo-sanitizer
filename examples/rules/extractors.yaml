@@ -618,11 +618,6 @@ treesitter:
       file_extensions: [.wgsl]
       extract_zones: [comment_line, comment_block]
 
-    - id: slang
-      grammar_package: tree-sitter-slang
-      file_extensions: [.slang]
-      extract_zones: [comment_line, comment_block, string_literal]
-
     # ── Hardware / EDA ────────────────────────────────────────────────────
     - id: verilog
       grammar_package: tree-sitter-verilog
@@ -665,12 +660,6 @@ treesitter:
       grammar_package: tree-sitter-func
       file_extensions: [.fc, .func]
       extract_zones: [comment_line, comment_block, string_literal]
-
-    # ── Ruby ecosystem ────────────────────────────────────────────────────
-    - id: rbs
-      grammar_package: tree-sitter-rbs
-      file_extensions: [.rbs]
-      extract_zones: [comment_line, string_literal]
 
     # ── Certificates / Secrets ────────────────────────────────────────────
     - id: pem
