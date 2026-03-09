@@ -8,7 +8,7 @@ def _hash(salt: bytes, value: str, length: int = 12) -> str:
 
 
 def mask_email(salt: bytes, value: str) -> str:
-    return f"user_{_hash(salt, value)}@example.com"
+    return f"REDACTED_EMAIL_{_hash(salt, value)}"
 
 
 def mask_phone(salt: bytes, value: str) -> str:
@@ -16,11 +16,11 @@ def mask_phone(salt: bytes, value: str) -> str:
 
 
 def mask_person(salt: bytes, value: str) -> str:
-    return f"Person_{_hash(salt, value)}"
+    return f"ANON_PER_{_hash(salt, value)}"
 
 
 def mask_org(salt: bytes, value: str) -> str:
-    return f"Org_{_hash(salt, value)}"
+    return f"ANON_ORG_{_hash(salt, value)}"
 
 
 def mask_domain(salt: bytes, value: str) -> str:
@@ -28,9 +28,7 @@ def mask_domain(salt: bytes, value: str) -> str:
 
 
 def mask_ip(salt: bytes, value: str) -> str:
-    h = _hash(salt, value, 3)
-    octet = int(h, 16) % 254 + 1
-    return f"192.0.2.{octet}"
+    return f"REDACTED_IP_{_hash(salt, value)}"
 
 
 def mask_secret(salt: bytes, value: str) -> str:
@@ -59,7 +57,7 @@ def mask_jwt(salt: bytes, value: str) -> str:
 
 
 def mask_url(salt: bytes, value: str) -> str:
-    return f"https://{_hash(salt, value, 8)}.example.invalid/path"
+    return f"REDACTED_URL_{_hash(salt, value)}"
 
 
 CATEGORY_MASKERS = {

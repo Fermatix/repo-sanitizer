@@ -40,6 +40,7 @@ class NERConfig:
     min_score: float = 0.7
     entity_types: list[str] = field(default_factory=lambda: ["PER", "ORG"])
     device: str = "cpu"
+    backend: str = "hf"  # "hf" (HuggingFace transformers) | "gliner"
 
 
 @dataclass
@@ -77,6 +78,7 @@ def load_rulepack(path: Path) -> Rulepack:
         min_score=ner_cfg.get("min_score", NERConfig.min_score),
         entity_types=ner_cfg.get("entity_types", ["PER", "ORG"]),
         device=ner_cfg.get("device", NERConfig.device),
+        backend=ner_cfg.get("backend", "hf"),
     )
 
     extractor = _load_extractor_config(path / "extractors.yaml")

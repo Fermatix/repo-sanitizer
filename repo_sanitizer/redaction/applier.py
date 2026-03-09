@@ -36,18 +36,21 @@ def apply_redactions(
         )
 
         finding.compute_hash(salt)
-        manifest.append(
-            {
-                "detector": finding.detector,
-                "category": finding.category.value,
-                "file_path": finding.file_path,
-                "line": finding.line,
-                "offset_start": finding.offset_start,
-                "offset_end": finding.offset_end,
-                "value_hash": finding.value_hash,
-                "replacement_length": len(replacement),
-            }
-        )
+        entry: dict = {
+            "detector": finding.detector,
+            "category": finding.category.value,
+            "file_path": finding.file_path,
+            "line": finding.line,
+            "offset_start": finding.offset_start,
+            "offset_end": finding.offset_end,
+            "original_value": original,
+            "replacement": replacement,
+            "value_hash": finding.value_hash,
+        }
+        if finding.detector == "NERDetector":
+            from repo_sanitizer.detectors.base import Category
+            entry["ner_label"] = "PER" if finding.category == Category.PII else "ORG"
+        manifest.append(entry)
 
     return result, manifest
 

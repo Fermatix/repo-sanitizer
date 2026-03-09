@@ -22,6 +22,14 @@ LABEL_MAP = {
 CHUNK_MAX_CHARS = 2000
 CHUNK_OVERLAP_LINES = 3
 
+# GLiNER uses descriptive free-form labels instead of short codes
+GLINER_LABEL_MAP = {
+    "PER": "person name",
+    "ORG": "organization name",
+}
+# Reverse: descriptive label → code
+_GLINER_LABEL_REVERSE = {v: k for k, v in GLINER_LABEL_MAP.items()}
+
 
 class NERDetector(Detector):
     """Detect person and organization names using a transformer NER model.
@@ -35,6 +43,7 @@ class NERDetector(Detector):
         self.config = config
         self.service_url = service_url  # if set, use HTTP mode (batch)
         self._pipeline = None
+        self._gliner = None
 
     def _ensure_pipeline(self) -> Any:
         if self._pipeline is not None:
@@ -107,6 +116,44 @@ class NERDetector(Detector):
 
         return self._deduplicate(findings)
 
+    def _ensure_gliner(self) -> Any:
+        if self._gliner is not None:
+            return self._gliner
+        try:
+            from gliner import GLiNER
+        except ImportError:
+            raise RuntimeError(
+                "The 'gliner' package is not installed. "
+                "Install it with: pip install gliner"
+            )
+        try:
+            self._gliner = GLiNER.from_pretrained(self.config.model)
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to load GLiNER model '{self.config.model}': {e}."
+            )
+        logger.info("GLiNER model '%s' loaded", self.config.model)
+        return self._gliner
+
+    def _infer_gliner(self, chunk: str) -> list[dict]:
+        """Run GLiNER inference. Returns entities in the same format as HF pipeline."""
+        model = self._ensure_gliner()
+        labels = [GLINER_LABEL_MAP.get(et, et.lower()) for et in self.config.entity_types]
+        entities = model.predict_entities(chunk, labels, threshold=self.config.min_score)
+        results = []
+        for ent in entities:
+            code = _GLINER_LABEL_REVERSE.get(ent["label"], ent["label"].upper())
+            if code not in LABEL_MAP:
+                continue
+            results.append({
+                "entity_group": code,
+                "score": ent["score"],
+                "word": ent["text"],
+                "start": ent["start"],
+                "end": ent["end"],
+            })
+        return results
+
     def _infer(self, chunk: str) -> list[dict]:
         """Run NER inference on a single text chunk. Uses HTTP service if configured."""
         if self.service_url:
@@ -128,15 +175,24 @@ class NERDetector(Detector):
             except Exception as e:
                 logger.warning("NER service call failed: %s", e)
                 return []
-        else:
-            pipe = self._ensure_pipeline()
-            return pipe(chunk)
+        if self.config.backend == "gliner":
+            return self._infer_gliner(chunk)
+        pipe = self._ensure_pipeline()
+        return pipe(chunk)
 
     def _detect_text(
         self, text: str, file_path: str, base_offset: int
     ) -> list[Finding]:
         if not text.strip():
             return []
+        # Eagerly load the model before the inference loop so that configuration
+        # errors (wrong model name, missing package) propagate to the caller
+        # instead of being silently swallowed by the per-chunk try/except below.
+        if not self.service_url:
+            if self.config.backend == "gliner":
+                self._ensure_gliner()
+            else:
+                self._ensure_pipeline()
         chunks = self._chunk_text(text)
         findings = []
         for chunk_offset, chunk in chunks:

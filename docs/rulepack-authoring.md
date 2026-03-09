@@ -126,8 +126,16 @@ binary_allow_extensions:
 
 ### NER-настройки
 
+Поддерживаются два backend'а для обнаружения именованных сущностей.
+
+#### HuggingFace backend (по умолчанию)
+
+Использует BERT-based трансформеры через `transformers` + `torch`. Быстрее на GPU, но требует тяжёлых зависимостей.
+
 ```yaml
 ner:
+  backend: hf   # или просто не указывать — hf по умолчанию
+
   # Модель из HuggingFace Hub или локальный путь
   model: Davlan/bert-base-multilingual-cased-ner-hrl
 
@@ -141,8 +149,7 @@ ner:
   # cpu      — только CPU (по умолчанию)
   # cuda     — первый доступный GPU NVIDIA
   # cuda:0   — конкретный GPU по индексу
-  # cuda:1   — второй GPU
-  # auto     — Accelerate автоматически распределяет модель (требует pip install accelerate)
+  # auto     — Accelerate автоматически распределяет модель (pip install accelerate)
   device: cpu
 ```
 
@@ -150,10 +157,31 @@ ner:
 
 Если CUDA запрошена, но `torch.cuda.is_available()` возвращает `False` — выводится предупреждение и происходит автоматический откат на CPU.
 
+#### GLiNER backend (рекомендуется)
+
+[GLiNER](https://github.com/urchade/GLiNER) — специализированная zero-shot NER архитектура. Аналогичная скорость, значительно меньше ложных срабатываний. Не требует `torch`.
+
+```bash
+pip install gliner
+```
+
+```yaml
+ner:
+  backend: gliner
+  model: urchade/gliner_multi-v2.1   # многоязычная, ~186M
+  # model: urchade/gliner_large-v2.1 # крупнее, выше recall
+  min_score: 0.5
+  entity_types: [PER, ORG]
+  # device: игнорируется для gliner backend
+```
+
+GLiNER использует описательные метки вместо кодов: `PER` → `"person name"`, `ORG` → `"organization name"`. Маппинг выполняется автоматически.
+
 Для офлайн-среды скачайте модель заранее и укажите локальный путь:
 
 ```yaml
 ner:
+  backend: hf
   model: /opt/models/bert-multilingual-ner
   min_score: 0.8
   device: cuda

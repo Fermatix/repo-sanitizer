@@ -24,6 +24,10 @@ pip install --no-index --find-links ./packages/ repo-sanitizer
 
 ## Шаг 2: NER-модель
 
+Выберите один из двух backend'ов.
+
+### Вариант А: HuggingFace backend (требует transformers + torch)
+
 На машине с интернетом:
 
 ```bash
@@ -37,9 +41,39 @@ huggingface-cli download Davlan/bert-base-multilingual-cased-ner-hrl \
 ```yaml
 # policies.yaml
 ner:
+  backend: hf
   model: /path/to/models/bert-multilingual-ner
   min_score: 0.7
   entity_types: [PER, ORG]
+```
+
+### Вариант Б: GLiNER backend (рекомендуется, не требует torch)
+
+На машине с интернетом:
+
+```bash
+pip install huggingface-hub
+huggingface-cli download urchade/gliner_multi-v2.1 \
+  --local-dir ./models/gliner-multi
+```
+
+Скопировать `./models/gliner-multi/` на офлайн-машину, затем в rulepack:
+
+```yaml
+# policies.yaml
+ner:
+  backend: gliner
+  model: /path/to/models/gliner-multi
+  min_score: 0.5
+  entity_types: [PER, ORG]
+```
+
+Также скачать офлайн пакет `gliner`:
+
+```bash
+pip download gliner -d ./packages/
+# на офлайн-машине:
+pip install --no-index --find-links ./packages/ gliner
 ```
 
 ## Шаг 3: gitleaks

@@ -77,7 +77,7 @@ class Detector(ABC):
 
 `ScanTarget.zones` — список `Zone(start, end)` в байтовых смещениях. Если `zones is None` — сканируется весь файл. Если `zones = []` — ничего не сканируется.
 
-`Finding.matched_value` никогда не записывается в артефакты. Вместо него — `value_hash = HMAC-SHA256(salt, value)[:12]`.
+`Finding.matched_value` записывается в `redaction_manifest.json` как `original_value` (исходная подстрока) и `replacement` (итоговое значение). Для NER-находок дополнительно присутствует `ner_label` (`PER` или `ORG`). Идентифицировать запись повторно без соли позволяет `value_hash = HMAC-SHA256(salt, value)[:12]`.
 
 ### TreeSitterExtractor (`extractors/treesitter.py`)
 
@@ -250,10 +250,11 @@ Rulepack
 ├── binary_allow_extensions: list
 ├── max_file_mb: int
 ├── ner: NERConfig
-│   ├── model: str
+│   ├── backend: str            # "hf" (HuggingFace transformers) | "gliner"
+│   ├── model: str              # HF Hub ID или локальный путь
 │   ├── min_score: float
 │   ├── entity_types: list[str]
-│   └── device: str             # cpu | cuda | cuda:0 | cuda:1 | auto
+│   └── device: str             # cpu | cuda | cuda:0 | cuda:1 | auto  (только hf)
 ├── extractor: ExtractorConfig
 │   ├── languages: list[ExtractorLanguage]
 │   │   └── {id, grammar_package, file_extensions, extract_zones}
@@ -274,8 +275,9 @@ Rulepack
 |---|---|
 | `gitleaks` не найден | `RuntimeError` при инициализации `SecretsDetector` → pipeline exit(1) |
 | `grammar_package` не установлен | Автоматически пробуется `tree-sitter-language-pack`; если и он недоступен — WARNING в лог + `FallbackExtractor` |
-| `transformers`/модель недоступны | `RuntimeError` в `NERDetector._ensure_pipeline()` → pipeline exit(1) |
-| CUDA запрошена, но недоступна | WARNING в лог + автоматический откат на CPU (`_resolve_device()`) |
+| `transformers`/модель недоступны (`backend: hf`) | `RuntimeError` в `NERDetector._ensure_pipeline()` → pipeline exit(1) |
+| `gliner` пакет не установлен (`backend: gliner`) | `RuntimeError` в `NERDetector._ensure_gliner()` → pipeline exit(1) |
+| CUDA запрошена, но недоступна | WARNING в лог + автоматический откат на CPU (`_resolve_device()`); только для `backend: hf` |
 | Ошибка парсинга tree-sitter | `on_parse_error: fallback` → `FallbackExtractor`; `skip` → пустые зоны; `fail` → исключение |
 | Файл не читается | Предупреждение в лог, файл пропускается |
 | Соль не задана | `ValueError` в `RunContext.create()` с понятным сообщением |
@@ -351,19 +353,20 @@ orchestrator.run_batch()
               └── batch_summary.json (сводка по всему запуску)
 ```
 
-### NERDetector: локальный vs HTTP-режим
+### NERDetector: режимы работы
 
-`NERDetector` поддерживает два режима, определяемых параметром `service_url`:
+`NERDetector` поддерживает три режима:
 
 ```
-service_url=None (одиночный режим)       service_url="http://127.0.0.1:8765" (batch)
-         │                                          │
-         ▼                                          ▼
-_ensure_pipeline()                          httpx.post("/ner", {"texts": [chunk]})
-→ HuggingFace pipeline (локальный GPU)     → NER Service (shared GPU)
+service_url=None, backend="hf"           service_url=None, backend="gliner"      service_url="http://..." (batch)
+         │                                          │                                        │
+         ▼                                          ▼                                        ▼
+_ensure_pipeline()                        _ensure_gliner()                         httpx.post("/ner", {"texts": [chunk]})
+→ HuggingFace transformers pipeline       → GLiNER model (pip install gliner)      → NER Service (shared GPU, только hf)
+  (требует transformers + torch)            точнее, быстрее, без torch
 ```
 
-`RunContext.ner_service_url` устанавливается в `pipeline.run_sanitize()` и передаётся в `build_detectors()` → `NERDetector.__init__`. Одиночный режим (`ner_service_url=None`) работает без изменений.
+`RunContext.ner_service_url` устанавливается в `pipeline.run_sanitize()` и передаётся в `build_detectors()` → `NERDetector.__init__`. HTTP batch-режим (`service_url != None`) используется только с `backend: hf` — GLiNER не требует выделенного сервиса, он загружается локально в каждом воркере.
 
 ### NER HTTP API
 

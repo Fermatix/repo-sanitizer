@@ -56,28 +56,24 @@ def test_different_salts_different_hashes():
 
 def test_mask_email_format():
     r = mask_email(SALT, "alice@example.com")
-    assert r.endswith("@example.com")
-    assert r.startswith("user_")
+    assert r.startswith("REDACTED_EMAIL_")
+    assert "@" not in r
 
 
 def test_mask_person_format():
     r = mask_person(SALT, "John Smith")
-    assert r.startswith("Person_")
+    assert r.startswith("ANON_PER_")
 
 
 def test_mask_org_format():
     r = mask_org(SALT, "Acme Corp")
-    assert r.startswith("Org_")
+    assert r.startswith("ANON_ORG_")
 
 
-def test_mask_ip_valid_range():
+def test_mask_ip_format():
     r = mask_ip(SALT, "10.0.0.1")
-    parts = r.split(".")
-    assert len(parts) == 4
-    assert parts[0] == "192"
-    assert parts[1] == "0"
-    assert parts[2] == "2"
-    assert 1 <= int(parts[3]) <= 254
+    assert r.startswith("REDACTED_IP_")
+    assert not r[0].isdigit()
 
 
 # ── Applier: single span ───────────────────────────────────────────────────────
@@ -126,14 +122,16 @@ def test_applier_preserves_surrounding_text():
     assert result.endswith(" after")
 
 
-def test_applier_manifest_has_hash_not_value():
+def test_applier_manifest_fields():
     content = "email: secret@corp.com done"
     finding = _make_finding(content, "secret@corp.com")
     _, manifest = apply_redactions(content, [finding], SALT)
     entry = manifest[0]
-    assert "secret@corp.com" not in str(entry)
+    assert entry["original_value"] == "secret@corp.com"
+    assert entry["replacement"].startswith("REDACTED_EMAIL_")
     assert "value_hash" in entry
     assert len(entry["value_hash"]) == 12
+    assert "ner_label" not in entry
 
 
 # ── Git identity ───────────────────────────────────────────────────────────────
