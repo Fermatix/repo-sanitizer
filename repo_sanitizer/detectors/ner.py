@@ -22,7 +22,7 @@ LABEL_MAP = {
 CHUNK_MAX_CHARS = 2000
 CHUNK_OVERLAP_LINES = 3
 # GLiNER max token window is 384; ~4 chars/token → ~1400 chars.  Stay well under.
-LINE_MAX_CHARS = 1000
+LINE_MAX_CHARS = 700
 
 # GLiNER uses descriptive free-form labels instead of short codes
 GLINER_LABEL_MAP = {
