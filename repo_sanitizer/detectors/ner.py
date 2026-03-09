@@ -21,6 +21,8 @@ LABEL_MAP = {
 
 CHUNK_MAX_CHARS = 2000
 CHUNK_OVERLAP_LINES = 3
+# GLiNER max token window is 384; ~4 chars/token → ~1400 chars.  Stay well under.
+LINE_MAX_CHARS = 1000
 
 # GLiNER uses descriptive free-form labels instead of short codes
 GLINER_LABEL_MAP = {
@@ -231,15 +233,37 @@ class NERDetector(Detector):
                 )
         return findings
 
+    @staticmethod
+    def _split_long_line(line: str, max_chars: int) -> list[str]:
+        """Split a line that exceeds *max_chars* on whitespace or hard-cut."""
+        if len(line) <= max_chars:
+            return [line]
+        parts = []
+        while len(line) > max_chars:
+            # Try to split on the last space before the limit.
+            cut = line.rfind(" ", 0, max_chars)
+            if cut <= 0:
+                cut = max_chars
+            parts.append(line[:cut])
+            line = line[cut:].lstrip(" ")
+        if line:
+            parts.append(line)
+        return parts
+
     def _chunk_text(self, text: str) -> list[tuple[int, str]]:
         if len(text) <= CHUNK_MAX_CHARS:
             return [(0, text)]
-        lines = text.split("\n")
+        # Expand lines that are individually too long for the model token window.
+        raw_lines = text.split("\n")
+        expanded: list[str] = []
+        for line in raw_lines:
+            expanded.extend(self._split_long_line(line, LINE_MAX_CHARS))
+
         chunks = []
         current_start = 0
         current_lines: list[str] = []
         current_len = 0
-        for line in lines:
+        for line in expanded:
             line_with_nl = line + "\n"
             if current_len + len(line_with_nl) > CHUNK_MAX_CHARS and current_lines:
                 chunk_text = "\n".join(current_lines)
