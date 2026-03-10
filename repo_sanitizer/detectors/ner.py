@@ -132,9 +132,13 @@ class NERDetector(Detector):
             )
         device = self._resolve_device(self.config.device)
         try:
-            self._gliner = GLiNER.from_pretrained(self.config.model)
-            if device not in ("cpu", "auto"):
-                self._gliner = self._gliner.to(device)
+            import torch
+            torch_device = torch.device(device if device != "auto" else "cpu")
+            self._gliner = GLiNER.from_pretrained(self.config.model, map_location=torch_device)
+            self._gliner = self._gliner.to(torch_device)
+            # GLiNER stores its own .device attribute used for tensor placement;
+            # .to() moves weights but does NOT update it automatically.
+            self._gliner.device = torch_device
         except Exception as e:
             raise RuntimeError(
                 f"Failed to load GLiNER model '{self.config.model}' on device '{self.config.device}': {e}."
