@@ -188,8 +188,6 @@ binary_allow_extensions:
 ner:
   backend: hf      # "hf" (HuggingFace transformers) or "gliner" (recommended)
   model: Babelscape/wikineural-multilingual-ner
-  #model: urchade/gliner_multi-v2.1   # multilingual, ~186M params
-  # model: urchade/gliner_large-v2.1   # larger, higher recall
   min_score: 0.5
   entity_types: [PER, ORG]
   device: cuda:0
