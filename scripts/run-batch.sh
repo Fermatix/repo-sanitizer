@@ -89,7 +89,7 @@ start)
             --unit="$UNIT_NAME" \
             --working-directory="$PROJECT_DIR" \
             --setenv="REPO_SANITIZER_SALT=$REPO_SANITIZER_SALT" \
-            uv run repo-sanitizer batch run "$CONFIG"
+            uv run repo-sanitizer batch run --config "$CONFIG"
 
         echo ""
         echo "Запущено через systemd (unit: $UNIT_NAME)"
@@ -111,7 +111,7 @@ start)
         fi
 
         nohup env REPO_SANITIZER_SALT="$REPO_SANITIZER_SALT" \
-            uv run repo-sanitizer batch run "$CONFIG" \
+            uv run repo-sanitizer batch run --config "$CONFIG" \
             >> "$LOGFILE" 2>&1 &
         echo $! > "$PIDFILE"
         disown
