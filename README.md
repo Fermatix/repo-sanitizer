@@ -12,6 +12,7 @@
 - [Установка](#установка)
 - [Команды CLI](#команды-cli)
 - [Batch-режим: обработка 2500+ репозиториев](#batch-режим-обработка-2500-репозиториев)
+  - [Фоновый запуск на Linux-сервере](#фоновый-запуск-на-linux-сервере)
 - [Конвейер sanitize](#конвейер-sanitize)
 - [Детекторы](#детекторы)
 - [Rulepack](#rulepack)
@@ -313,6 +314,44 @@ Orchestrator
 - **Worker Pool** — `ProcessPoolExecutor(max_workers=N)`: CPU-bound работа (tree-sitter, regex, git) масштабируется линейно на все ядра Threadripper
 - **NERDetector** в воркерах автоматически переключается в HTTP-режим при наличии `ner_service_url`
 - **Одиночный режим** (`repo-sanitizer sanitize`) работает как раньше — модель загружается локально
+
+### Фоновый запуск на Linux-сервере
+
+При работе через SSH или VS Code Remote обычный запуск CLI привязан к терминалу — процесс умирает при закрытии сессии. Для длительных прогонов используйте скрипт `scripts/run-batch.sh`.
+
+**Подготовка:**
+
+```bash
+# Задать соль один раз
+echo "REPO_SANITIZER_SALT=твой-секретный-salt" > .env
+
+# Убедиться, что скрипт исполняемый
+chmod +x scripts/run-batch.sh
+```
+
+**Управление задачей:**
+
+```bash
+# Запустить в фоне (терминал можно закрыть)
+./scripts/run-batch.sh start examples/batch.yaml
+
+# Проверить статус из нового терминала
+./scripts/run-batch.sh status
+
+# Следить за логами в реальном времени
+./scripts/run-batch.sh logs
+
+# Остановить досрочно
+./scripts/run-batch.sh stop
+```
+
+Скрипт автоматически выбирает метод запуска:
+- **systemd-run** (Ubuntu/Debian/CentOS) — логи через `journalctl --user`, стандартный подход для современных Linux-серверов
+- **nohup + disown** (fallback) — если systemd недоступен, логи пишутся в `batch.log`
+
+> **Безопасность:** соль передаётся через переменную окружения или файл `.env`, который добавлен в `.gitignore`. В аргументы командной строки соль не попадает и не видна в `ps aux` / `/proc`.
+
+---
 
 ### Необходимые права GitLab-токена
 
@@ -919,6 +958,9 @@ repo_sanitizer/
 examples/
 ├── rules/                  # Пример rulepack
 └── batch.yaml              # Пример batch-конфигурации
+
+scripts/
+└── run-batch.sh            # Фоновый запуск batch на Linux (systemd-run / nohup)
 ```
 
 ### Добавить новый детектор

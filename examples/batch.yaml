@@ -25,9 +25,9 @@ gitlab:
 # Use CLI flags --partner / --repo to override at runtime.
 # ---------------------------------------------------------------------------
 scope:
-  all: true
-  # partners:
-  #   - acme-corp
+  # all: true
+  partners:
+    - doubletapp
   #   - big-co
   # repos:
   #   - acme-corp/backend-api

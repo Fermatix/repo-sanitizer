@@ -33,6 +33,13 @@ pip-wheel-metadata/
 .DS_Store
 Thumbs.db
 
+# Secrets — никогда не коммитить
+.env
+
+# Background task artifacts
+batch.log
+.repo-sanitizer.pid
+
 # Project runtime/output artifacts
 audit-output/
 sanitized-output/
