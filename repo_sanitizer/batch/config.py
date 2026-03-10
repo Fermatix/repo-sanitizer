@@ -32,7 +32,6 @@ class ProcessingConfig:
     workers: int = 8
     ner_service_port: int = 8765
     ner_batch_size: int = 32
-    ner_max_wait_ms: int = 20
     work_base_dir: Path = field(default_factory=lambda: Path("/tmp/repo-san-work"))
     keep_work_dirs: bool = False
 
@@ -78,7 +77,6 @@ def load_batch_config(path: Path) -> BatchConfig:
         workers=int(proc_raw.get("workers", 8)),
         ner_service_port=int(proc_raw.get("ner_service_port", 8765)),
         ner_batch_size=int(proc_raw.get("ner_batch_size", 32)),
-        ner_max_wait_ms=int(proc_raw.get("ner_max_wait_ms", 20)),
         work_base_dir=Path(proc_raw.get("work_base_dir", "/tmp/repo-san-work")),
         keep_work_dirs=bool(proc_raw.get("keep_work_dirs", False)),
     )

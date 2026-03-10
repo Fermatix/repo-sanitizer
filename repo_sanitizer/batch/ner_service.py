@@ -12,9 +12,10 @@ API:
 Entity format matches HuggingFace pipeline with aggregation_strategy="simple":
     {"entity_group": "PER", "score": 0.95, "word": "John Doe", "start": 0, "end": 8}
 
-Dynamic batching: requests from concurrent workers are collected within a short
-time window (max_wait_ms) and dispatched as a single GPU batch, achieving true
-GPU parallelism instead of sequential 1-sample inference.
+Dynamic batching (inference-time accumulation): the batcher waits for the first
+request, yields one event-loop tick so all concurrent HTTP handlers can enqueue
+their chunks, then drains the queue and dispatches a single GPU call. The batch
+size self-adjusts to load — no arbitrary timeout needed.
 """
 import asyncio
 import logging
@@ -28,56 +29,71 @@ logger = logging.getLogger(__name__)
 # FastAPI application (runs inside the service process)
 # ---------------------------------------------------------------------------
 
-def _make_app(model_name: str, device: str, batch_size: int, max_wait_ms: int) -> Any:
+def _make_app(
+    model_name: str,
+    device: str,
+    batch_size: int,
+    backend: str,
+    min_score: float,
+    entity_types: list[str],
+) -> Any:
     from fastapi import FastAPI, Request
     from fastapi.responses import JSONResponse
 
     app = FastAPI(title="NER Service")
     _pipeline: Any = None
+    _gliner: Any = None
     _queue: asyncio.Queue = asyncio.Queue()
 
-    def _normalize_results(raw: list, n_texts: int) -> list:
-        """Ensure raw pipeline output is list-of-lists regardless of HF quirks."""
-        if raw and isinstance(raw[0], dict):
+    def _run_hf(texts: list[str]) -> list[list[dict]]:
+        raw = _pipeline(texts, batch_size=batch_size)
+        # HF quirk: single-text call returns a flat list instead of list-of-lists
+        if texts and isinstance(raw[0], dict):
             raw = [raw]
         return raw
 
+    def _run_gliner(texts: list[str]) -> list[list[dict]]:
+        from repo_sanitizer.detectors.ner import GLINER_LABEL_MAP, _GLINER_LABEL_REVERSE
+        labels = [GLINER_LABEL_MAP.get(et, et.lower()) for et in entity_types]
+        results = []
+        for text in texts:
+            entities = _gliner.predict_entities(text, labels, threshold=min_score)
+            chunk_results = []
+            for ent in entities:
+                code = _GLINER_LABEL_REVERSE.get(ent["label"], ent["label"].upper())
+                chunk_results.append({
+                    "entity_group": code,
+                    "score": ent["score"],
+                    "word": ent["text"],
+                    "start": ent["start"],
+                    "end": ent["end"],
+                })
+            results.append(chunk_results)
+        return results
+
     async def _batching_loop() -> None:
-        """Collect concurrent requests and dispatch as a single GPU batch."""
+        """Inference-time accumulation: collect all pending requests, then one GPU call."""
         loop = asyncio.get_running_loop()
+        _infer = _run_gliner if backend == "gliner" else _run_hf
         while True:
             # Block until at least one request arrives
             texts0, fut0 = await _queue.get()
+            # One event-loop tick lets pending HTTP handlers complete their put()
+            await asyncio.sleep(0)
             batch_items: list[tuple[list[str], asyncio.Future]] = [(texts0, fut0)]
+            # Drain everything else that arrived while we were waiting
+            while not _queue.empty():
+                batch_items.append(_queue.get_nowait())
 
-            # Collect additional requests within the time window
-            deadline = loop.time() + max_wait_ms / 1000.0
-            while len(batch_items) < batch_size:
-                remaining = deadline - loop.time()
-                if remaining <= 0:
-                    break
-                try:
-                    item = await asyncio.wait_for(_queue.get(), timeout=remaining)
-                    batch_items.append(item)
-                except asyncio.TimeoutError:
-                    break
-
-            # Flatten all texts into one list for a single GPU call
             all_texts = [t for texts, _ in batch_items for t in texts]
             try:
-                raw = await loop.run_in_executor(
-                    None, lambda: _pipeline(all_texts, batch_size=batch_size)
-                )
-                # Defensive normalisation: single-text call may return a flat list
-                if all_texts and isinstance(raw[0], dict):
-                    raw = [raw]
+                raw = await loop.run_in_executor(None, lambda: _infer(all_texts))
             except Exception as exc:
                 for _, fut in batch_items:
                     if not fut.done():
                         fut.set_exception(exc)
                 continue
 
-            # Distribute results back to each waiting future
             offset = 0
             for texts, fut in batch_items:
                 n = len(texts)
@@ -87,27 +103,34 @@ def _make_app(model_name: str, device: str, batch_size: int, max_wait_ms: int) -
 
     @app.on_event("startup")
     async def _startup() -> None:
-        nonlocal _pipeline
-        from transformers import pipeline as hf_pipeline
+        nonlocal _pipeline, _gliner
         from repo_sanitizer.detectors.ner import NERDetector
-
         resolved = NERDetector._resolve_device(device)
-        logger.info("Loading NER model '%s' on device '%s'", model_name, resolved)
-        if resolved == "auto":
-            _pipeline = hf_pipeline(
-                "ner",
-                model=model_name,
-                aggregation_strategy="simple",
-                device_map="auto",
-            )
+        logger.info("Loading NER model '%s' on device '%s' (backend=%s)", model_name, resolved, backend)
+        if backend == "gliner":
+            try:
+                import torch
+                from gliner import GLiNER
+                torch_device = torch.device(resolved if resolved != "auto" else "cpu")
+                _gliner = GLiNER.from_pretrained(model_name, map_location=torch_device)
+                _gliner = _gliner.to(torch_device)
+                _gliner.device = torch_device
+            except Exception as e:
+                raise RuntimeError(f"Failed to load GLiNER model '{model_name}': {e}")
         else:
-            _pipeline = hf_pipeline(
-                "ner",
-                model=model_name,
-                aggregation_strategy="simple",
-                device=resolved,
-            )
-        logger.info("NER model ready; starting dynamic batcher (max_wait_ms=%d)", max_wait_ms)
+            from transformers import pipeline as hf_pipeline
+            try:
+                if resolved == "auto":
+                    _pipeline = hf_pipeline(
+                        "ner", model=model_name, aggregation_strategy="simple", device_map="auto"
+                    )
+                else:
+                    _pipeline = hf_pipeline(
+                        "ner", model=model_name, aggregation_strategy="simple", device=resolved
+                    )
+            except Exception as e:
+                raise RuntimeError(f"Failed to load NER model '{model_name}': {e}")
+        logger.info("NER model ready; starting dynamic batcher")
         asyncio.create_task(_batching_loop())
 
     @app.get("/health")
@@ -117,12 +140,10 @@ def _make_app(model_name: str, device: str, batch_size: int, max_wait_ms: int) -
 
     @app.post("/ner")
     async def ner(request: Request) -> JSONResponse:
-        import asyncio
-        from repo_sanitizer.detectors.ner import GLINER_LABEL_MAP, _GLINER_LABEL_REVERSE, LABEL_MAP
         body = await request.json()
         texts = body.get("texts", [])
         if not texts:
-            return JSONResponse({"results": [[] for _ in texts]})
+            return JSONResponse({"results": []})
 
         loop = asyncio.get_running_loop()
         fut: asyncio.Future = loop.create_future()
@@ -140,14 +161,22 @@ def _make_app(model_name: str, device: str, batch_size: int, max_wait_ms: int) -
                 }
                 for e in entities
             ]
-
-        results = await loop.run_in_executor(None, _run_pipeline)
+            for entities in raw
+        ]
         return JSONResponse({"results": results})
 
     return app
 
 
-def _run_server(model_name: str, device: str, port: int, batch_size: int, max_wait_ms: int) -> None:
+def _run_server(
+    model_name: str,
+    device: str,
+    port: int,
+    batch_size: int,
+    backend: str,
+    min_score: float,
+    entity_types: list[str],
+) -> None:
     """Entry point for the service subprocess."""
     import uvicorn
 
@@ -159,7 +188,7 @@ def _run_server(model_name: str, device: str, port: int, batch_size: int, max_wa
     for name in ("transformers", "filelock", "huggingface_hub", "urllib3", "httpx"):
         logging.getLogger(name).setLevel(logging.ERROR)
 
-    app = _make_app(model_name, device, batch_size, max_wait_ms)
+    app = _make_app(model_name, device, batch_size, backend, min_score, entity_types)
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
@@ -178,9 +207,10 @@ def launch_ner_service(
     device: str,
     port: int,
     batch_size: int = 32,
-    max_wait_ms: int = 20,
     timeout: float = 180.0,
-    backend: str = "transformers",
+    backend: str = "hf",
+    min_score: float = 0.7,
+    entity_types: list[str] | None = None,
 ) -> multiprocessing.Process:
     """Start the NER service in a daemon subprocess and wait until it's ready.
 
@@ -189,12 +219,16 @@ def launch_ner_service(
     Raises ``TimeoutError`` if the service does not become ready within *timeout* seconds.
 
     Args:
-        batch_size: Maximum number of text chunks per GPU batch.
-        max_wait_ms: How long (ms) to wait for additional requests before
-            dispatching a batch. Higher values improve GPU utilisation at the
-            cost of individual request latency. Default 20 ms is a good
-            trade-off for 8–32 concurrent workers.
+        batch_size: Maximum number of text chunks in a single GPU forward pass.
+            The batcher naturally fills up to this size using inference-time
+            accumulation — no fixed wait timeout needed.
+        backend: ``"hf"`` for HuggingFace transformers, ``"gliner"`` for GLiNER.
+        min_score: Minimum confidence threshold (GLiNER only).
+        entity_types: Entity type codes to detect (GLiNER only, e.g. ``["PER", "ORG"]``).
     """
+    if entity_types is None:
+        entity_types = ["PER", "ORG"]
+
     if _is_port_in_use(port):
         raise RuntimeError(
             f"Port {port} is already in use. A previous NER service may still be running. "
@@ -203,18 +237,18 @@ def launch_ner_service(
 
     proc = multiprocessing.Process(
         target=_run_server,
-        args=(model_name, device, port, batch_size, max_wait_ms),
+        args=(model_name, device, port, batch_size, backend, min_score, entity_types),
         daemon=True,
         name="ner-service",
     )
     proc.start()
     logger.info(
-        "NER service starting (model=%s, device=%s, port=%d, batch_size=%d, max_wait_ms=%d, pid=%d)",
+        "NER service starting (model=%s, backend=%s, device=%s, port=%d, batch_size=%d, pid=%d)",
         model_name,
+        backend,
         device,
         port,
         batch_size,
-        max_wait_ms,
         proc.pid,
     )
 

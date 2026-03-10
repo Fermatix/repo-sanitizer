@@ -104,7 +104,9 @@ def run_batch(
         device=rulepack.ner.device,
         port=config.processing.ner_service_port,
         batch_size=config.processing.ner_batch_size,
-        max_wait_ms=config.processing.ner_max_wait_ms,
+        backend=rulepack.ner.backend,
+        min_score=rulepack.ner.min_score,
+        entity_types=rulepack.ner.entity_types,
     )
 
     # Create state directory once before the processing loop
