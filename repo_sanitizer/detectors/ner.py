@@ -130,13 +130,16 @@ class NERDetector(Detector):
                 "The 'gliner' package is not installed. "
                 "Install it with: pip install gliner"
             )
+        device = self._resolve_device(self.config.device)
         try:
             self._gliner = GLiNER.from_pretrained(self.config.model)
+            if device not in ("cpu", "auto"):
+                self._gliner = self._gliner.to(device)
         except Exception as e:
             raise RuntimeError(
-                f"Failed to load GLiNER model '{self.config.model}': {e}."
+                f"Failed to load GLiNER model '{self.config.model}' on device '{self.config.device}': {e}."
             )
-        logger.info("GLiNER model '%s' loaded", self.config.model)
+        logger.info("GLiNER model '%s' loaded on device '%s'", self.config.model, self.config.device)
         return self._gliner
 
     def _infer_gliner(self, chunk: str) -> list[dict]:
