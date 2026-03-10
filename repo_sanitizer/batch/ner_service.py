@@ -150,6 +150,12 @@ def _run_server(model_name: str, device: str, port: int, batch_size: int, backen
 # Public API: launch / stop
 # ---------------------------------------------------------------------------
 
+def _is_port_in_use(port: int) -> bool:
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(("127.0.0.1", port)) == 0
+
+
 def launch_ner_service(
     model_name: str,
     device: str,
@@ -161,8 +167,15 @@ def launch_ner_service(
     """Start the NER service in a daemon subprocess and wait until it's ready.
 
     Returns the process handle so the caller can terminate it when done.
+    Raises ``RuntimeError`` if the port is already in use or the process dies.
     Raises ``TimeoutError`` if the service does not become ready within *timeout* seconds.
     """
+    if _is_port_in_use(port):
+        raise RuntimeError(
+            f"Port {port} is already in use. A previous NER service may still be running. "
+            f"Kill it with: fuser -k {port}/tcp"
+        )
+
     proc = multiprocessing.Process(
         target=_run_server,
         args=(model_name, device, port, batch_size, backend),
@@ -178,27 +191,23 @@ def launch_ner_service(
         proc.pid,
     )
 
-    # Give the process a moment to start, then check it hasn't immediately crashed
-    # (e.g. port already in use from a previous run).
-    time.sleep(1.0)
-    if not proc.is_alive():
-        raise RuntimeError(
-            f"NER service process died immediately (exit code: {proc.exitcode}). "
-            f"Port {port} may already be in use by a previous run. "
-            f"Kill it with: fuser -k {port}/tcp"
-        )
-
-    _wait_for_ready(port, timeout)
+    _wait_for_ready(port, timeout, proc)
     logger.info("NER service is ready on port %d", port)
     return proc
 
 
-def _wait_for_ready(port: int, timeout: float) -> None:
+def _wait_for_ready(port: int, timeout: float, proc: multiprocessing.Process) -> None:
     import httpx
 
     deadline = time.monotonic() + timeout
     last_exc: Exception | None = None
     while time.monotonic() < deadline:
+        if not proc.is_alive():
+            raise RuntimeError(
+                f"NER service process died (exit code: {proc.exitcode}). "
+                f"Port {port} may already be in use by a previous run. "
+                f"Kill it with: fuser -k {port}/tcp"
+            )
         try:
             resp = httpx.get(f"http://127.0.0.1:{port}/health", timeout=3.0)
             if resp.json().get("status") == "ready":
