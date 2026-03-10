@@ -19,10 +19,12 @@ LABEL_MAP = {
     "ORG": (Category.ORG_NAME, Severity.MEDIUM),
 }
 
-CHUNK_MAX_CHARS = 2000
 CHUNK_OVERLAP_LINES = 3
-# GLiNER max token window is 384; ~4 chars/token → ~1400 chars.  Stay well under.
-LINE_MAX_CHARS = 400
+# GLiNER max token window is 384. Code tokenizes at ~1–1.3 chars/token (subwords,
+# special chars, camelCase), so 384 tokens ≈ 300–500 chars. Keep both limits at
+# 300 to guarantee no truncation regardless of content.
+LINE_MAX_CHARS = 300
+CHUNK_MAX_CHARS = 300
 
 # GLiNER uses descriptive free-form labels instead of short codes
 GLINER_LABEL_MAP = {
