@@ -67,52 +67,64 @@ def _make_app(model_name: str, device: str, batch_size: int, backend: str = "tra
 
     @app.post("/ner")
     async def ner(request: Request) -> JSONResponse:
+        import asyncio
         from repo_sanitizer.detectors.ner import GLINER_LABEL_MAP, _GLINER_LABEL_REVERSE, LABEL_MAP
         body = await request.json()
         texts = body.get("texts", [])
         if not texts:
             return JSONResponse({"results": [[] for _ in texts]})
 
+        loop = asyncio.get_event_loop()
+
         if backend == "gliner":
             if _gliner is None:
                 return JSONResponse({"results": [[] for _ in texts]})
             labels = list(GLINER_LABEL_MAP.values())
-            results = []
-            for text in texts:
-                entities = _gliner.predict_entities(text, labels)
-                converted = []
-                for ent in entities:
-                    code = _GLINER_LABEL_REVERSE.get(ent["label"], ent["label"].upper())
-                    converted.append({
-                        "entity_group": code,
-                        "score": float(ent["score"]),
-                        "word": ent["text"],
-                        "start": int(ent["start"]),
-                        "end": int(ent["end"]),
-                    })
-                results.append(converted)
+
+            def _run_gliner() -> list:
+                results = []
+                for text in texts:
+                    entities = _gliner.predict_entities(text, labels)
+                    converted = []
+                    for ent in entities:
+                        code = _GLINER_LABEL_REVERSE.get(ent["label"], ent["label"].upper())
+                        converted.append({
+                            "entity_group": code,
+                            "score": float(ent["score"]),
+                            "word": ent["text"],
+                            "start": int(ent["start"]),
+                            "end": int(ent["end"]),
+                        })
+                    results.append(converted)
+                return results
+
+            results = await loop.run_in_executor(None, _run_gliner)
             return JSONResponse({"results": results})
 
         if _pipeline is None:
             return JSONResponse({"results": [[] for _ in texts]})
-        # Pass the full list for true GPU batching; pipeline returns list-of-lists
-        raw = _pipeline(texts, batch_size=batch_size)
-        # Defensive normalisation: single-string path returns a flat list
-        if texts and isinstance(raw[0], dict):
-            raw = [raw]
-        results = [
-            [
-                {
-                    "entity_group": e.get("entity_group", ""),
-                    "score": float(e.get("score", 0)),
-                    "word": e.get("word", ""),
-                    "start": int(e.get("start", 0)),
-                    "end": int(e.get("end", 0)),
-                }
-                for e in entities
+
+        def _run_pipeline() -> list:
+            # Pass the full list for true GPU batching; pipeline returns list-of-lists
+            raw = _pipeline(texts, batch_size=batch_size)
+            # Defensive normalisation: single-string path returns a flat list
+            if texts and isinstance(raw[0], dict):
+                raw = [raw]
+            return [
+                [
+                    {
+                        "entity_group": e.get("entity_group", ""),
+                        "score": float(e.get("score", 0)),
+                        "word": e.get("word", ""),
+                        "start": int(e.get("start", 0)),
+                        "end": int(e.get("end", 0)),
+                    }
+                    for e in entities
+                ]
+                for entities in raw
             ]
-            for entities in raw
-        ]
+
+        results = await loop.run_in_executor(None, _run_pipeline)
         return JSONResponse({"results": results})
 
     return app

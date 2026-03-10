@@ -22,7 +22,7 @@ LABEL_MAP = {
 CHUNK_MAX_CHARS = 2000
 CHUNK_OVERLAP_LINES = 3
 # GLiNER max token window is 384; ~4 chars/token → ~1400 chars.  Stay well under.
-LINE_MAX_CHARS = 700
+LINE_MAX_CHARS = 400
 
 # GLiNER uses descriptive free-form labels instead of short codes
 GLINER_LABEL_MAP = {
@@ -171,7 +171,7 @@ class NERDetector(Detector):
                 resp = httpx.post(
                     f"{self.service_url}/ner",
                     json={"texts": chunks},
-                    timeout=30.0 * len(chunks),
+                    timeout=600.0,
                 )
                 if resp.status_code != 200:
                     logger.warning(
