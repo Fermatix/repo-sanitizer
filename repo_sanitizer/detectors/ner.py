@@ -158,13 +158,20 @@ class NERDetector(Detector):
 
     def _infer(self, chunk: str) -> list[dict]:
         """Run NER inference on a single text chunk. Uses HTTP service if configured."""
+        results = self._infer_batch([chunk])
+        return results[0] if results else []
+
+    def _infer_batch(self, chunks: list[str]) -> list[list[dict]]:
+        """Run NER inference on multiple chunks in one call. Returns list-of-entity-lists."""
+        if not chunks:
+            return []
         if self.service_url:
             try:
                 import httpx
                 resp = httpx.post(
                     f"{self.service_url}/ner",
-                    json={"texts": [chunk]},
-                    timeout=30.0,
+                    json={"texts": chunks},
+                    timeout=30.0 * len(chunks),
                 )
                 if resp.status_code != 200:
                     logger.warning(
@@ -173,14 +180,14 @@ class NERDetector(Detector):
                         resp.text[:1000],
                     )
                 resp.raise_for_status()
-                return resp.json()["results"][0]
+                return resp.json()["results"]
             except Exception as e:
                 logger.warning("NER service call failed: %s", e)
-                return []
+                return [[] for _ in chunks]
         if self.config.backend == "gliner":
-            return self._infer_gliner(chunk)
+            return [self._infer_gliner(chunk) for chunk in chunks]
         pipe = self._ensure_pipeline()
-        return pipe(chunk)
+        return [pipe(chunk) for chunk in chunks]
 
     def _detect_text(
         self, text: str, file_path: str, base_offset: int
@@ -197,12 +204,14 @@ class NERDetector(Detector):
                 self._ensure_pipeline()
         chunks = self._chunk_text(text)
         findings = []
-        for chunk_offset, chunk in chunks:
-            try:
-                results = self._infer(chunk)
-            except Exception as e:
-                logger.warning("NER inference error: %s", e)
-                continue
+        chunk_offsets = [co for co, _ in chunks]
+        chunk_texts = [c for _, c in chunks]
+        try:
+            batch_results = self._infer_batch(chunk_texts)
+        except Exception as e:
+            logger.warning("NER inference error: %s", e)
+            return findings
+        for chunk_offset, results in zip(chunk_offsets, batch_results):
             for entity in results:
                 label = entity.get("entity_group", "")
                 if label not in self.config.entity_types:
