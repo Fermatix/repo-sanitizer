@@ -40,6 +40,8 @@ ad.internal
 
 # ── .corp TLD ─────────────────────────────────────────────────────
 mycompany.corp
+doubletapp.io
+doubletapp.ai
 services.corp
 intranet.corp
 wiki.corp

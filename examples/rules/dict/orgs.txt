@@ -14,6 +14,25 @@
 # mycompany
 # MC
 # MYCO
+# Doubletapp
+# doubletapp
+# 2tapp
+# dt
+# DT
+# Буравчик
+# буравчик
+# Fermatix
+# fermatix
+# grably
+# grably
+# Toloka
+# toloka
+# nebius
+# Nebius
+# Hexabola
+# Hexabola
+# Algorista
+# algorista
 
 # ── Subsidiaries / brands ─────────────────────────────────────────
 # MyCompany Labs
