@@ -72,3 +72,35 @@
 # Pte Ltd
 # Pty Ltd
 # Co
+
+# ── Partners ───────────────────────────────────────────────────
+# 4rome
+# 65apps
+# alto
+# Alto
+# Artsofte
+# artsofte
+# bershad.sky
+# bershadsky
+# Code9
+# code9
+# CRT
+# d2d
+# D2D
+# Extyl
+# extyl
+# Intelsy
+# intelsy
+# MadBrains
+# madbrains
+# soft-media-lab
+# softmedialab
+# Spectr.dev
+# Spectrdev
+# Spectr
+# surf
+# webteam
+# Webteam
+# WebTeam
+# Глобус
+# Globus
