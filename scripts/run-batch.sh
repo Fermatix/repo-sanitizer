@@ -110,9 +110,11 @@ start)
             fi
         fi
 
-        nohup env REPO_SANITIZER_SALT="$REPO_SANITIZER_SALT" \
+        # setsid puts the process in its own process group so that
+        # "stop" can kill the orchestrator AND all its worker children at once
+        setsid nohup env REPO_SANITIZER_SALT="$REPO_SANITIZER_SALT" \
             uv run repo-sanitizer batch run --config "$CONFIG" \
-            >> "$LOGFILE" 2>&1 &
+            < /dev/null >> "$LOGFILE" 2>&1 &
         echo $! > "$PIDFILE"
         disown
 
@@ -175,9 +177,16 @@ stop)
         if [[ -f "$PIDFILE" ]]; then
             PID=$(cat "$PIDFILE")
             if kill -0 "$PID" 2>/dev/null; then
-                kill "$PID"
+                # Kill the entire process group (orchestrator + all workers + NER service)
+                PGID=$(ps -o pgid= -p "$PID" 2>/dev/null | tr -d ' ')
+                if [[ -n "$PGID" && "$PGID" != "0" ]]; then
+                    kill -- -"$PGID"
+                    echo "Остановлено (группа процессов PGID=$PGID)."
+                else
+                    kill "$PID"
+                    echo "Остановлено (PID $PID)."
+                fi
                 rm -f "$PIDFILE"
-                echo "Остановлено (PID $PID)."
             else
                 echo "Процесс уже завершён."
                 rm -f "$PIDFILE"
