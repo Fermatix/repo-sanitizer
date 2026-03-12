@@ -1,969 +1,207 @@
 # repo-sanitizer
 
-Утилита командной строки для анонимизации Git-репозитория перед передачей третьим сторонам или публикацией.
+CLI tool for anonymizing Git repositories before sharing with third parties.
 
-На вход — локальный репозиторий или URL. На выход — `git bundle` с переписанной историей, в котором нет PII, секретов и внутренней инфраструктурной информации ни в одном коммите ни одной ветки.
-
----
-
-## Содержание
-
-- [Быстрый старт](#быстрый-старт)
-- [Установка](#установка)
-- [Команды CLI](#команды-cli)
-- [Batch-режим: обработка 2500+ репозиториев](#batch-режим-обработка-2500-репозиториев)
-  - [Фоновый запуск на Linux-сервере](#фоновый-запуск-на-linux-сервере)
-- [Конвейер sanitize](#конвейер-sanitize)
-- [Детекторы](#детекторы)
-- [Rulepack](#rulepack)
-- [Артефакты](#артефакты)
-- [Расширение поддержки языков](#расширение-поддержки-языков)
-- [Безопасность и детерминированность](#безопасность-и-детерминированность)
-- [Разработка](#разработка)
-- [Ограничения](#ограничения)
+Takes a local path or URL as input. Produces a `git bundle` with fully rewritten history — no PII, secrets, or internal infrastructure data in any commit on any branch.
 
 ---
 
-## Быстрый старт
+## Quick Start
 
 ```bash
-# 1. Установить
+# 1. Install
 pip install repo-sanitizer
 
-# 2. Задать соль (обязательно — не передаётся через CLI)
+# 2. Set salt (required — never passed via CLI)
 export REPO_SANITIZER_SALT="$(openssl rand -hex 32)"
 
-# 3. Запустить очистку
+# 3. Sanitize
 repo-sanitizer sanitize ./my-project \
   --rulepack ./rules \
   --out ./sanitized-output
 
-# 4. Проверить результат
+# 4. Check result
 cat sanitized-output/artifacts/result.json
 
-# 5. Передать бандл
+# 5. Share the bundle
 git clone sanitized-output/output/sanitized.bundle ./verification
 ```
 
 ---
 
-## Установка
+## Features
 
-### Требования
+| What gets detected | How |
+|---|---|
+| Secrets (API keys, tokens, passwords) | gitleaks |
+| Emails, phone numbers, IPv4 addresses, JWTs, URLs | Regex patterns |
+| Internal domains and private IPs (RFC 1918) | EndpointDetector |
+| Names and organizations | NER transformer model |
+| Custom terms (project codenames, client names) | Dictionary (Aho-Corasick) |
 
-| Инструмент | Версия | Назначение |
+| What gets rewritten | Scope |
+|---|---|
+| Working tree files | Comments and string literals only (tree-sitter zones) |
+| Commit metadata | Author name, email, commit message — all branches |
+| File content in history | All unique blobs across all branches |
+| Denied files | Removed from every commit |
+
+| Output | |
+|---|---|
+| `sanitized.bundle` | Git bundle, cloneable |
+| `result.json` | Gate results, SHA-256 of bundle, timings |
+| Scan reports | Pre/post findings for working tree and history |
+
+All replacements are **deterministic**: same salt + value → same output every time.
+
+---
+
+## Installation
+
+### Requirements
+
+| Tool | Version | Purpose |
 |---|---|---|
-| Python | ≥ 3.11 | Рантайм |
-| [gitleaks](https://github.com/gitleaks/gitleaks) | любая | Обнаружение секретов |
+| Python | ≥ 3.11 | Runtime |
+| [gitleaks](https://github.com/gitleaks/gitleaks) | any | Secret detection (required) |
 | git | ≥ 2.35 | Clone, log, bundle |
 
-### Установка Python-пакета
-
-**С uv (рекомендуется):**
+### Python package
 
 ```bash
-uv add repo-sanitizer --dev
-# или глобально:
-uv tool install repo-sanitizer --dev
-```
+# With uv (recommended)
+uv add repo-sanitizer
 
-**С pip:**
-
-```bash
+# With pip
 pip install repo-sanitizer
-```
 
-**Опциональные зависимости:**
-
-```bash
-# Все грамматики tree-sitter (~165 языков через один пакет)
-pip install "repo-sanitizer[grammars]"
-# или
-uv add tree-sitter-language-pack
-```
-
-### Установка gitleaks
-
-```bash
-# macOS
-brew install gitleaks
-
-# Linux
-sudo apt install gitleaks
-
-# Windows (Scoop)
-scoop install gitleaks
-```
-
-### NER-модель (скачивается автоматически)
-
-При первом запуске `transformers` скачивает модель `Davlan/bert-base-multilingual-cased-ner-hrl` (~700 МБ) в `~/.cache/huggingface/`. Для офлайн-среды:
-
-```bash
-# Скачать заранее
-huggingface-cli download Davlan/bert-base-multilingual-cased-ner-hrl
-
-# Или указать локальный путь в rulepack/policies.yaml:
-# ner:
-#   model: /path/to/local/model
-```
-
----
-
-## Команды CLI
-
-### `sanitize` — полная очистка
-
-```
-repo-sanitizer sanitize <source> [OPTIONS]
-```
-
-Запускает полный конвейер: клонирование → инвентаризация → сканирование → редактирование → переписывание истории → проверка гейтов → упаковка в bundle.
-
-> **Покрытие истории:** конвейер обрабатывает **все ветки и теги** — метаданные коммитов (автор, email, текст), содержимое файлов в каждом уникальном блобе, и переписывает историю через git-filter-repo.
-
-**Аргументы:**
-
-| Параметр | Тип | Обязательный | По умолчанию | Описание |
-|---|---|---|---|---|
-| `source` | строка | да | — | Путь к локальному репозиторию или Git URL |
-| `--rulepack` | путь | да | — | Директория с rulepack |
-| `--out` | путь | да | — | Выходная директория |
-| `--rev` | строка | нет | `HEAD` | Git-ревизия для checkout рабочего дерева |
-| `--salt-env` | строка | нет | `REPO_SANITIZER_SALT` | Имя env-переменной с солью |
-| `--max-file-mb` | число | нет | `20` | Лимит размера файла в МБ |
-| `--history-since` | дата | нет | — | Нижняя граница истории (формат git: `2024-01-01`) |
-| `--history-until` | дата | нет | — | Верхняя граница истории |
-| `--ner-device` | строка | нет | `cpu` | Устройство для NER-модели: `cpu` \| `cuda` \| `cuda:0` \| `cuda:1` \| `auto` |
-
-**Exit codes:**
-
-| Код | Значение |
-|---|---|
-| `0` | Все гейты пройдены, бандл создан |
-| `1` | Один или несколько гейтов провалены |
-
-**Пример:**
-
-```bash
-export REPO_SANITIZER_SALT="my-secret-salt"
-
-repo-sanitizer sanitize https://github.com/org/private-repo \
-  --rulepack ./my-rules \
-  --out ./output \
-  --history-since 2023-01-01
-```
-
----
-
-### `scan` — только сканирование (аудит)
-
-```
-repo-sanitizer scan <source> [OPTIONS]
-```
-
-Клонирует репозиторий, строит инвентарь, запускает все детекторы на рабочем дереве и истории — **без каких-либо изменений**. Используется для предварительного аудита.
-
-Принимает те же параметры, что и `sanitize` (включая `--ner-device`). Создаёт артефакты `inventory.json`, `scan_report_pre.json`, `history_scan_pre.json`, `history_blob_scan_pre.json`.
-
-**Пример:**
-
-```bash
-repo-sanitizer scan ./my-project \
-  --rulepack ./rules \
-  --out ./audit-output
-```
-
----
-
-### `install-grammars` — установка грамматик tree-sitter
-
-```
-repo-sanitizer install-grammars --rulepack PATH
-```
-
-Проверяет, установлены ли pip-пакеты грамматик, указанных в `extractors.yaml`, и устанавливает недостающие через `pip install`.
-
-```bash
-repo-sanitizer install-grammars --rulepack ./my-rules
-# Grammar packages:
-#   ✓ tree-sitter-python (python)
-#   ✗ tree-sitter-typescript (typescript) — not installed
-#   ✗ tree-sitter-go (go) — not installed
-# Installing 2 package(s)...
-```
-
-> **Без этой команды** конвейер продолжает работать — для файлов без установленной грамматики автоматически используется `FallbackExtractor` (regex-комментарии). В начале сканирования выводится предупреждение, в конце — сводка по покрытию.
-
----
-
-## Batch-режим: обработка 2500+ репозиториев
-
-Batch-режим позволяет автоматически клонировать репозитории из группы GitLab, анонимизировать каждый и загружать bundle в delivery-группу. Предназначен для обработки тысяч репозиториев на сервере с многоядерным CPU и GPU.
-
-### Быстрый старт
-
-```bash
-# 1. Задать переменные окружения
-export REPO_SANITIZER_SALT="$(openssl rand -hex 32)"
-export GITLAB_TOKEN="glpat-xxxxxxxxxxxxxxxxxxxx"
-
-# 2. Посмотреть, какие репозитории попадут в обработку
-repo-sanitizer batch list --config examples/batch.yaml
-
-# 3. Обработать все репозитории
-repo-sanitizer batch run --config examples/batch.yaml
-
-# 4. Только конкретный партнёр
-repo-sanitizer batch run --config examples/batch.yaml --partner acme-corp
-
-# 5. Только конкретный репозиторий
-repo-sanitizer batch run --config examples/batch.yaml --repo acme-corp/backend-api
-
-# 6. Повторить только упавшие (после сбоя)
-repo-sanitizer batch run --config examples/batch.yaml --retry-failed
-```
-
-### Команды batch
-
-#### `batch run` — запустить обработку
-
-```
-repo-sanitizer batch run --config PATH [OPTIONS]
-```
-
-| Параметр | Описание |
-|---|---|
-| `--config` | Путь к YAML-файлу конфигурации batch |
-| `--partner NAME` | Обрабатывать только этих партнёров (повторяемый) |
-| `--repo PARTNER/NAME` | Обрабатывать только эти репозитории (повторяемый) |
-| `--retry-failed` | Повторить репозитории со статусом `failed` из предыдущего запуска |
-
-CLI-флаги переопределяют `scope` из конфигурационного файла. Приоритет: `--repo` > `--partner` > `scope` из конфига.
-
-#### `batch list` — перечислить репозитории (dry-run)
-
-```
-repo-sanitizer batch list --config PATH
-```
-
-Перечисляет репозитории из GitLab согласно `scope` без какой-либо обработки.
-
-### Конфигурационный файл (batch.yaml)
-
-Следует тому же паттерну, что и `policies.yaml` / `extractors.yaml`:
-
-```yaml
-# Подключение к GitLab
-gitlab:
-  url: https://gitlab.example.com
-  token_env: GITLAB_TOKEN           # имя env-переменной с токеном
-  source_group: partner-private-repos
-  delivery_group: partner-private-repos-delivery
-  clone_depth: 0                    # 0 = полная история
-
-# Область обработки (взаимоисключающие, приоритет: repos > partners > all)
-scope:
-  all: true
-  # partners:
-  #   - acme-corp
-  # repos:
-  #   - acme-corp/backend-api
-
-# Путь к rulepack (как в --rulepack)
-rulepack: examples/rules
-
-# Env-переменная с солью
-salt_env: REPO_SANITIZER_SALT
-
-# Параллелизация
-processing:
-  workers: 16                       # параллельных воркеров
-  ner_service_port: 8765            # порт NER HTTP-сервиса
-  ner_batch_size: 32                # размер батча GPU-инференса
-  work_base_dir: /tmp/repo-san-work # временные директории
-  keep_work_dirs: false             # удалять после push
-
-# Выходные данные
-output:
-  artifacts_dir: ./batch-artifacts  # <dir>/<partner>/<repo>/
-  state_file: ./batch_state.json    # прогресс (resume/retry)
-```
-
-Полный пример: [`examples/batch.yaml`](examples/batch.yaml).
-
-### Архитектура параллелизации
-
-При обработке большого числа репозиториев ключевая проблема — NER-модель: она весит ~1.1 GB VRAM. Если каждый из 16 воркеров загрузит свою копию — память GPU переполнится.
-
-**Решение: NER как выделенный HTTP-сервис**
-
-```
-Orchestrator
-├── NER Service (FastAPI, GPU)    ← модель загружена 1 раз
-│     POST /ner → entities
-│
-├── Worker-0 (process)  ──┐
-├── Worker-1 (process)  ──┤── HTTP → NER Service
-│   ...                   │
-└── Worker-N (process)  ──┘
-    Каждый: clone → sanitize → upload
-```
-
-- **NER Service** запускается orchestrator'ом перед воркерами; берёт модель и `device` из `policies.yaml` (тот же `cuda:0`, что и в одиночном режиме)
-- **Worker Pool** — `ProcessPoolExecutor(max_workers=N)`: CPU-bound работа (tree-sitter, regex, git) масштабируется линейно на все ядра Threadripper
-- **NERDetector** в воркерах автоматически переключается в HTTP-режим при наличии `ner_service_url`
-- **Одиночный режим** (`repo-sanitizer sanitize`) работает как раньше — модель загружается локально
-
-### Фоновый запуск на Linux-сервере
-
-При работе через SSH или VS Code Remote обычный запуск CLI привязан к терминалу — процесс умирает при закрытии сессии. Для длительных прогонов используйте скрипт `scripts/run-batch.sh`.
-
-**Подготовка:**
-
-```bash
-# Задать соль один раз
-echo "REPO_SANITIZER_SALT=твой-секретный-salt" > .env
-
-# Убедиться, что скрипт исполняемый
-chmod +x scripts/run-batch.sh
-```
-
-**Управление задачей:**
-
-```bash
-# Запустить в фоне (терминал можно закрыть)
-./scripts/run-batch.sh start examples/batch.yaml
-
-# Проверить статус из нового терминала
-./scripts/run-batch.sh status
-
-# Следить за логами в реальном времени
-./scripts/run-batch.sh logs
-
-# Остановить досрочно
-./scripts/run-batch.sh stop
-```
-
-Скрипт автоматически выбирает метод запуска:
-- **systemd-run** (Ubuntu/Debian/CentOS) — логи через `journalctl --user`, стандартный подход для современных Linux-серверов
-- **nohup + disown** (fallback) — если systemd недоступен, логи пишутся в `batch.log`
-
-> **Безопасность:** соль передаётся через переменную окружения или файл `.env`, который добавлен в `.gitignore`. В аргументы командной строки соль не попадает и не видна в `ps aux` / `/proc`.
-
----
-
-### Необходимые права GitLab-токена
-
-| Группа | Права |
-|---|---|
-| `partner-private-repos` | `read_api`, `read_repository` |
-| `partner-private-repos-delivery` | `api`, `write_repository` |
-
-### Отслеживание прогресса и resume
-
-Прогресс сохраняется в `batch_state.json` после каждого репозитория:
-
-```json
-{
-  "acme-corp/backend-api": {"status": "done", "bundle_sha256": "abc...", "exit_code": 0, "pushed": true, "ts": "..."},
-  "acme-corp/frontend": {"status": "failed", "error": "gitleaks not found", "ts": "..."},
-  "big-co/service": {"status": "done", "bundle_sha256": "def...", "exit_code": 0, "pushed": true, "ts": "..."}
-}
-```
-
-- `done` — пропускается при повторном запуске
-- `failed` — пропускается, обрабатывается с `--retry-failed`
-- При падении процесса — возобновляется с того же места
-
-### Артефакты batch-режима
-
-После завершения прогона структура `artifacts_dir` выглядит следующим образом:
-
-```
-batch-artifacts/
-├── batch_summary.json          # сводка по всему запуску
-├── acme-corp/
-│   └── backend-api/
-│       ├── batch_result.json   # результат обработки этого репозитория
-│       ├── result.json         # гейты, SHA бандла, timings
-│       ├── inventory.json
-│       ├── scan_report_pre.json
-│       └── ...
-└── big-co/
-    └── service/
-        ├── batch_result.json
-        └── ...
-```
-
-**`batch_result.json`** — записывается всегда (включая упавшие репозитории):
-
-```json
-{
-  "partner": "acme-corp",
-  "name": "backend-api",
-  "status": "done",
-  "exit_code": 0,
-  "bundle_sha256": "abc123...",
-  "pushed": true,
-  "error": "",
-  "ts": "2026-03-09T12:34:56+00:00"
-}
-```
-
-**`batch_summary.json`** — сводка по всему запуску, перезаписывается при каждом прогоне:
-
-```json
-{
-  "started_at": "2026-03-09T10:00:00+00:00",
-  "finished_at": "2026-03-09T12:34:56+00:00",
-  "total": 42,
-  "succeeded": 40,
-  "failed": 2,
-  "pushed": 40,
-  "repos": [
-    {"partner": "acme-corp", "name": "backend-api", "status": "done", "exit_code": 0, "pushed": true, "bundle_sha256": "abc...", "error": ""},
-    {"partner": "acme-corp", "name": "frontend", "status": "failed", "exit_code": -1, "pushed": false, "bundle_sha256": "", "error": "gitleaks not found"}
-  ]
-}
-```
-
----
-
-## Конвейер sanitize
-
-```
-sanitize <source> --rulepack PATH --out PATH --salt-env VAR
-
-Шаг 1:  Fetch              → clone/copy источника в out/work/
-Шаг 2:  Inventory          → out/artifacts/inventory.json
-Шаг 3:  Pre-scan           → out/artifacts/scan_report_pre.json
-Шаг 4:  Redact             → out/artifacts/redaction_manifest.json
-Шаг 5:  Post-scan          → out/artifacts/scan_report_post.json
-Шаг 6:  History-scan       → out/artifacts/history_scan_pre.json       (метаданные коммитов, все ветки)
-Шаг 6b: History-blob-scan  → out/artifacts/history_blob_scan_pre.json  (содержимое файлов, все ветки)
-Шаг 7:  History-rewrite    → out/artifacts/history_rewrite_log.txt
-Шаг 8:  History-post-scan  → out/artifacts/history_scan_post.json
-Шаг 8b: History-blob-post  → out/artifacts/history_blob_scan_post.json
-Шаг 9:  Gate check         → out/artifacts/result.json
-Шаг 10: Package            → out/output/sanitized.bundle
-```
-
-### Инвентаризация (шаг 2)
-
-Каждый файл получает категорию и действие:
-
-| Категория | Примеры |
-|---|---|
-| `code` | `.py`, `.js`, `.ts`, `.go`, `.rs`, … |
-| `config` | `.env`, `.yaml`, `.toml`, `.ini` |
-| `docs` | `.md`, `.txt`, `.rst`, `.json` |
-| `binary` | `.png`, `.exe`, `.zip`, … |
-
-| Действие | Условие |
-|---|---|
-| `DELETE` | Попал в `deny_globs`, суффикс не разрешён |
-| `SCAN` | Попал в `deny_globs`, но суффикс `.example`/`.sample`/`.template`; или обычный текстовый файл |
-| `SKIP` | Бинарный с deny-расширением (→ DELETE) или allow-расширением, или превышает `max_file_mb` |
-
-### Redact (шаг 4)
-
-1. Файлы с действием `DELETE` — удаляются.
-2. Для файлов с категорией `code` — редактируются **только** комментарии и строковые литералы (через tree-sitter). Идентификаторы и структура кода не трогаются.
-3. Замены применяются в обратном порядке по смещению, чтобы не сбивать позиции.
-
-### History-scan (шаг 6)
-
-Сканирует **метаданные всех коммитов во всех ветках и тегах** (`git log --all`): имя автора, email, имя коммиттера, email коммиттера, текст сообщения. Использует те же детекторы, что и рабочее дерево.
-
-### History-blob-scan (шаг 6b)
-
-Сканирует **содержимое файлов в каждом уникальном блобе** во всей истории репозитория (все ветки и теги). Каждый блоб проверяется один раз независимо от того, сколько коммитов на него ссылаются.
-
-Детекторы, используемые для блобов: `RegexPIIDetector`, `DictionaryDetector`, `EndpointDetector`. `SecretsDetector` (gitleaks) и `NERDetector` исключены по соображениям производительности — вызов subprocess на каждый блоб неприемлемо медленен для больших историй.
-
-### History-rewrite (шаг 7)
-
-Использует `git-filter-repo`:
-- `author.name` / `committer.name` → `Author_{hash}`
-- `author.email` / `committer.email` → `author_{hash}@example.invalid`
-- Тексты commit messages — прогоняются через детекторы, PII заменяется
-- Blob-callback — email, телефоны и **все паттерны из `regex/pii_patterns.yaml`** применяются к текстовым блобам в истории
-- Файлы из `deny_globs` удаляются из всех коммитов
-
-### Гейты (шаг 9)
-
-| Гейт | Условие провала |
-|---|---|
-| `SECRETS` | Findings `category=SECRET` в post-scan, history-post-scan или history-blob-post-scan |
-| `PII_HIGH` | Findings email/phone/person с `severity=HIGH` (те же источники) |
-| `FORBIDDEN_FILES` | Deny-файлы присутствуют в output-дереве |
-| `CONFIGS` | Config-файлы без разрешённого суффикса присутствуют в output |
-| `DICTIONARY` | Совпадения по корпоративным словарям |
-| `ENDPOINTS` | Внутренние домены или приватные IP |
-
----
-
-## Детекторы
-
-Все детекторы реализуют интерфейс:
-
-```python
-class Detector(ABC):
-    def detect(self, target: ScanTarget) -> list[Finding]
-```
-
-`Finding` содержит: `detector`, `category`, `severity`, `file_path`, `line`, `offset_start`, `offset_end`, `value_hash`. **В отчёты никогда не попадают исходные значения** — только HMAC-SHA256(salt, value)[:12].
-
-### SecretsDetector
-
-Обёртка над `gitleaks detect --no-git`. Категория `SECRET`, severity `CRITICAL`.
-
-> **Важно:** если `gitleaks` недоступен в PATH — конвейер немедленно падает с понятной ошибкой.
->
-> SecretsDetector **не используется** при сканировании исторических блобов (шаги 6b/8b) из соображений производительности.
-
-### RegexPIIDetector
-
-Паттерны из `rulepack/regex/pii_patterns.yaml`. Встроенный набор:
-
-| Паттерн | Категория | Severity |
-|---|---|---|
-| Email | `PII` | `HIGH` |
-| Телефон (E.164) | `PII` | `HIGH` |
-| IPv4 | `PII` | `MEDIUM` |
-| JWT | `SECRET` | `CRITICAL` |
-| HTTPS URL | `ENDPOINT` | `MEDIUM` |
-
-### DictionaryDetector
-
-Поиск по словарям с помощью алгоритма Aho-Corasick (O(n) по длине текста). Словари — текстовые файлы в `rulepack/dict/`: по одному термину на строку. Строки, начинающиеся с `#`, игнорируются.
-
-### EndpointDetector
-
-Обнаруживает:
-- Приватные IP (RFC 1918): `10.x.x.x`, `172.16–31.x.x`, `192.168.x.x`
-- Внутренние домены по TLD: `.internal`, `.corp`, `.local`, `.lan`, `.intra`
-- Домены из `rulepack/dict/domains.txt`
-
-### NERDetector
-
-Обнаружение имён людей (`PER`) и организаций (`ORG`) через transformer-модель `Davlan/bert-base-multilingual-cased-ner-hrl`. Поддерживает русский и английский языки (F1 ~90%+).
-
-| Метка модели | Категория | Severity |
-|---|---|---|
-| `PER` | `PII` | `HIGH` |
-| `ORG` | `ORG_NAME` | `MEDIUM` |
-
-Фильтрация: score < `ner_min_score` (по умолчанию 0.7) и совпадения короче 3 символов — отбрасываются. Длинные тексты автоматически разбиваются на перекрывающиеся фрагменты.
-
-**GPU-ускорение:** по умолчанию модель запускается на CPU. Для запуска на NVIDIA GPU используйте флаг `--ner-device` или поле `device` в `policies.yaml`:
-
-```bash
-# CLI
-repo-sanitizer sanitize ./repo --rulepack ./rules --out ./out --ner-device cuda
-
-# Конкретный GPU
-repo-sanitizer sanitize ./repo --rulepack ./rules --out ./out --ner-device cuda:1
-
-# Авто-распределение (требует accelerate)
-repo-sanitizer sanitize ./repo --rulepack ./rules --out ./out --ner-device auto
-```
-
-Если CUDA запрошена, но `torch.cuda.is_available()` возвращает `False` — выводится предупреждение и происходит автоматический откат на CPU.
-
-> **Важно:** если `transformers` не установлен или модель недоступна — конвейер падает с понятной ошибкой.
->
-> NERDetector **не используется** при сканировании исторических блобов из соображений производительности.
-
----
-
-## Rulepack
-
-Rulepack — директория с правилами. Минимальная структура:
-
-```
-my-rules/
-├── VERSION                    # обязательный файл с версией, например "1.0.0"
-├── policies.yaml              # основные политики
-├── extractors.yaml            # конфигурация tree-sitter
-├── dict/
-│   ├── domains.txt            # внутренние домены
-│   ├── orgs.txt               # названия организаций
-│   ├── clients.txt            # имена клиентов
-│   └── codenames.txt          # кодовые названия проектов
-└── regex/
-    └── pii_patterns.yaml      # regex-паттерны
-```
-
-Встроенный rulepack находится в `repo_sanitizer/rules/` и используется по умолчанию.
-
-Полный пример с комментариями ко всем полям: `examples/full-rulepack/`.
-
-### policies.yaml
-
-```yaml
-deny_globs:
-  - "**/.env"
-  - "**/config.*"
-  - "**/secrets.*"
-  - "**/*.key"
-  - "**/*.pem"
-  - "**/.mailmap"
-  - "**/CODEOWNERS"
-
-allow_suffixes: [".example", ".sample", ".template"]
-
-binary_deny_extensions: [exe, dll, so, jar, zip, gz, tar, rar, 7z, pdf, db, sqlite]
-binary_allow_extensions: [png, jpg, gif, svg]
-
-ner:
-  model: Davlan/bert-base-multilingual-cased-ner-hrl
-  min_score: 0.7
-  entity_types: [PER, ORG]
-  device: cpu          # cpu | cuda | cuda:0 | cuda:1 | auto
-
-max_file_mb: 20
-```
-
-**Приоритеты конфигурации:**
-
-```
-CLI-аргументы → переменные окружения → rulepack/policies.yaml → defaults
-```
-
-### extractors.yaml
-
-Определяет, какие зоны исходного кода доступны для сканирования и редактирования:
-
-```yaml
-treesitter:
-  languages:
-    - id: python
-      grammar_package: tree-sitter-python
-      file_extensions: [.py, .pyw]
-      extract_zones: [comment_line, comment_block, docstring, string_literal]
-
-    - id: javascript
-      grammar_package: tree-sitter-javascript
-      file_extensions: [.js, .mjs, .cjs]
-      extract_zones: [comment_line, comment_block, string_literal, template_literal]
-
-  zone_policy:
-    redact_string_literals: true   # false — трогать только комментарии
-    min_string_length: 4
-
-  on_parse_error: fallback         # fallback | skip | fail
-
-fallback_extractor:
-  enabled: true
-  comment_patterns:
-    - pattern: '#.*$'
-    - pattern: '//.*$'
-    - pattern: '--.*$'
-```
-
-### regex/pii_patterns.yaml
-
-```yaml
-patterns:
-  - name: email
-    pattern: '[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
-    category: PII
-    severity: HIGH
-
-  - name: internal_ticket
-    pattern: 'PROJ-\d{4,}'
-    category: DICTIONARY
-    severity: MEDIUM
-```
-
-Паттерны применяются не только при сканировании рабочего дерева, но и в `blob_callback` при переписывании истории — все значения заменяются детерминированными масками `[name:{hash12}]`.
-
-### Словари (dict/*.txt)
-
-```
-# domains.txt — по одному домену на строку
-corp.internal
-mycompany.io
-```
-
-```
-# codenames.txt
-ProjectPhoenix
-OperationAlpha
-```
-
----
-
-## Артефакты
-
-После выполнения `sanitize` в выходной директории:
-
-```
-out/
-├── work/                          # рабочая копия репозитория (изменённая)
-├── output/
-│   └── sanitized.bundle           # финальный git bundle
-└── artifacts/
-    ├── inventory.json                  # список файлов с категориями и действиями
-    ├── scan_report_pre.json            # findings рабочего дерева до редактирования
-    ├── scan_report_post.json           # findings рабочего дерева после редактирования
-    ├── redaction_manifest.json         # применённые замены (только хэши, не значения)
-    ├── history_scan_pre.json           # findings метаданных коммитов до переписывания
-    ├── history_blob_scan_pre.json      # findings содержимого блобов до переписывания
-    ├── history_scan_post.json          # findings метаданных коммитов после переписывания
-    ├── history_blob_scan_post.json     # findings содержимого блобов после переписывания
-    ├── history_rewrite_log.txt         # лог git-filter-repo
-    └── result.json                     # статусы гейтов, exit code, SHA-256 бандла
-```
-
-### result.json
-
-```json
-{
-  "exit_code": 0,
-  "all_passed": true,
-  "gates": {
-    "SECRETS":          { "passed": true,  "failing_count": 0 },
-    "PII_HIGH":         { "passed": true,  "failing_count": 0 },
-    "FORBIDDEN_FILES":  { "passed": true,  "failing_count": 0, "files": [] },
-    "CONFIGS":          { "passed": true,  "failing_count": 0, "files": [] },
-    "DICTIONARY":       { "passed": true,  "failing_count": 0 },
-    "ENDPOINTS":        { "passed": true,  "failing_count": 0 }
-  },
-  "summary": {
-    "total_pre_findings": 12,
-    "total_post_findings": 0,
-    "total_history_pre_findings": 5,
-    "total_history_post_findings": 0,
-    "total_history_blob_pre_findings": 8,
-    "total_history_blob_post_findings": 0,
-    "total_redactions": 17
-  },
-  "timings": {
-    "total_s": 142.3,
-    "steps": {
-      "fetch": 3.2,
-      "inventory": 0.1,
-      "scan_pre": 12.4,
-      "redact": 2.1,
-      "inventory_post": 0.1,
-      "scan_post": 11.8,
-      "history_scan_pre": 5.3,
-      "history_blob_scan_pre": 45.2,
-      "history_rewrite": 38.9,
-      "history_scan_post": 4.8,
-      "history_blob_scan_post": 42.1,
-      "gate_check": 0.02,
-      "package": 1.8
-    },
-    "detectors": {
-      "scan_report_pre": {
-        "SecretsDetector": 5.2,
-        "RegexPIIDetector": 3.1,
-        "DictionaryDetector": 0.8,
-        "EndpointDetector": 0.4,
-        "NERDetector": 2.9
-      }
-    },
-    "gates": {
-      "SECRETS": 0.0012,
-      "PII_HIGH": 0.0008,
-      "DICTIONARY": 0.0005,
-      "ENDPOINTS": 0.0006,
-      "FORBIDDEN_FILES": 0.0003,
-      "CONFIGS": 0.0004
-    }
-  }
-}
-```
-
-Поле `timings` позволяет понять, где расходуется время: какие шаги конвейера самые долгие, какие детекторы медленнее всего, сколько времени занимает каждый gate.
-
-### Finding (в scan_report_*.json)
-
-```json
-{
-  "detector": "RegexPIIDetector",
-  "category": "PII",
-  "severity": "HIGH",
-  "file_path": "src/app.py",
-  "line": 4,
-  "offset_start": 72,
-  "offset_end": 93,
-  "value_hash": "3a9f1c2b4e7d"
-}
-```
-
-> Поле `value_hash` — HMAC-SHA256(salt, original\_value)[:12]. Исходное значение в файл **никогда не записывается**.
-
----
-
-## Расширение поддержки языков
-
-### Способ 1: один пакет — 165+ языков (рекомендуется)
-
-`tree-sitter-language-pack` включает Vue, Astro, Nim, Odin и большинство языков, которые не опубликованы как отдельные PyPI-пакеты:
-
-```bash
-pip install tree-sitter-language-pack
-# или
+# With all tree-sitter grammars (165+ languages)
 pip install "repo-sanitizer[grammars]"
 ```
 
-После установки все языки из `extractors.yaml`, для которых нет отдельного pip-пакета, автоматически загружаются из `tree-sitter-language-pack` — без каких-либо изменений в конфигурации.
-
-### Способ 2: отдельный pip-пакет для языка
+### gitleaks
 
 ```bash
-# 1. Установить грамматику
-uv add tree-sitter-ruby
-
-# 2. Добавить запись в rulepack/extractors.yaml
+brew install gitleaks        # macOS
+sudo apt install gitleaks    # Linux
+scoop install gitleaks       # Windows
 ```
 
-```yaml
-- id: ruby
-  grammar_package: tree-sitter-ruby
-  file_extensions: [.rb]
-  extract_zones: [comment_line, comment_block, string_literal]
-```
+### NER model (optional, downloaded automatically)
 
-```bash
-# 3. Проверить установку
-repo-sanitizer install-grammars --rulepack ./my-rules
-```
-
-### Приоритет источников грамматик
-
-При загрузке грамматики для языка extractor проверяет источники в порядке приоритета:
-
-1. **Standalone-пакет** (`tree-sitter-ruby`, `tree-sitter-php`, …) — если установлен
-2. **`tree-sitter-language-pack`** — если standalone-пакет не установлен
-3. **`FallbackExtractor`** (regex-комментарии) — если ни один из источников недоступен
-
-> **Примечание для пакетов с нестандартным API** (например, `tree-sitter-typescript`): пакет экспортирует `language_typescript()` и `language_tsx()` вместо стандартного `language()`. Это поддерживается автоматически — указывайте `id: typescript` и `id: tsx` в `extractors.yaml`.
+On first run, `transformers` downloads `Davlan/bert-base-multilingual-cased-ner-hrl` (~700 MB) to `~/.cache/huggingface/`. See [docs/offline.md](docs/offline.md) for air-gapped setup.
 
 ---
 
-## Замены (маски)
+## CLI
 
-Все замены детерминированы: одинаковые `salt` + `value` → одинаковый результат.
-
-| Тип | Результат |
+| Command | Description |
 |---|---|
-| Email | `user_{hash12}@example.com` |
-| Телефон | `+0000000000` |
-| Имя человека (PER) | `Person_{hash12}` |
-| Организация (ORG) | `Org_{hash12}` |
-| Домен | `{hash8}.example.invalid` |
-| IP-адрес | `192.0.2.{1–254}` |
-| Author name | `Author_{hash12}` |
-| Author email | `author_{hash12}@example.invalid` |
-| Секрет (gitleaks) | `REDACTED_{hash12}` |
-| Regex-паттерн (pii_patterns.yaml) | `[name:{hash12}]` |
+| `sanitize <source>` | Full pipeline: clone → scan → redact → rewrite history → bundle |
+| `scan <source>` | Read-only audit — no changes made |
+| `install-grammars` | Verify and install tree-sitter grammar packages |
+| `batch run` | Process thousands of GitLab repositories in parallel |
+| `batch list` | Dry-run: enumerate repositories without processing |
 
-`{hash12}` = HMAC-SHA256(salt, value).hexdigest()[:12]
+### `sanitize` options
 
----
+| Option | Default | Description |
+|---|---|---|
+| `--rulepack PATH` | — | Path to rulepack directory (required) |
+| `--out PATH` | — | Output directory (required) |
+| `--rev REV` | `HEAD` | Git revision for working tree checkout |
+| `--salt-env VAR` | `REPO_SANITIZER_SALT` | Name of env variable holding the salt |
+| `--max-file-mb N` | `20` | Skip files larger than N MB |
+| `--history-since DATE` | — | Limit history scan start date (git format: `2024-01-01`) |
+| `--history-until DATE` | — | Limit history scan end date |
+| `--ner-device DEVICE` | `cpu` | NER device: `cpu` \| `cuda` \| `cuda:0` \| `auto` |
 
-## Безопасность и детерминированность
+**Exit codes:** `0` = all gates passed, `1` = one or more gates failed.
 
-**Соль никогда не передаётся через аргументы CLI** — только через переменную окружения, чтобы не попасть в историю shell.
+### `scan` options
 
-```bash
-# Правильно:
-export REPO_SANITIZER_SALT="$(openssl rand -hex 32)"
-repo-sanitizer sanitize ./repo --rulepack ./rules --out ./out
-
-# Для кастомного имени переменной:
-export MY_SALT="..."
-repo-sanitizer sanitize ./repo --rulepack ./rules --out ./out --salt-env MY_SALT
-```
-
-**Детерминированность:** при одинаковых входных данных, соли и rulepack два прогона производят побайтово идентичный `sanitized.bundle`. SHA-256 бандла записывается в `result.json` для верификации.
-
-**Оригинал не модифицируется:** все операции выполняются на копии в `out/work/`.
+Same options as `sanitize`. Produces `inventory.json`, `scan_report_pre.json`, `history_scan_pre.json`, `history_blob_scan_pre.json`. No files are modified.
 
 ---
 
-## Разработка
+## Documentation
+
+| Doc | Contents |
+|---|---|
+| [docs/pipeline.md](docs/pipeline.md) | All 10 pipeline steps, detectors, replacement masks, artifacts |
+| [docs/rulepack-authoring.md](docs/rulepack-authoring.md) | Writing policies.yaml, extractors.yaml, regex patterns, dictionaries |
+| [docs/batch.md](docs/batch.md) | Processing 2500+ GitLab repositories in parallel |
+| [docs/architecture.md](docs/architecture.md) | Internal design: RunContext, data flow, history rewrite, determinism |
+| [docs/offline.md](docs/offline.md) | Air-gapped / offline environment setup |
+
+---
+
+## Development
 
 ```bash
-# Клонировать
-git clone <repo-url>
-cd repo-sanitizer
-
-# Установить зависимости (включая dev)
+git clone <repo-url> && cd repo-sanitizer
 uv sync --dev
 
-# Запустить unit-тесты (быстро, без внешних инструментов)
+# Fast unit tests (no external tools required)
 uv run pytest tests/test_rulepack.py tests/test_redaction.py \
               tests/test_inventory.py tests/test_detectors.py \
               tests/test_extractors.py -v
 
-# Все тесты (включая NER и интеграционные)
+# All tests (NER and integration tests skip if dependencies missing)
 uv run pytest -v
 
-# Запустить CLI из исходников
+# Run CLI from source
 uv run repo-sanitizer --help
 ```
 
-### Структура проекта
+### Project structure
 
 ```
 repo_sanitizer/
-├── cli.py                  # Точка входа (Typer): sanitize, scan, install-grammars, batch
-├── context.py              # RunContext: salt, пути, rulepack, findings, ner_service_url
-├── pipeline.py             # Оркестратор шагов (run_sanitize / run_scan_only)
-├── rulepack.py             # Загрузка и валидация rulepack
+├── cli.py                    # Entry point (Typer): sanitize, scan, install-grammars, batch
+├── context.py                # RunContext: salt, paths, rulepack, findings, timings
+├── pipeline.py               # Step orchestrator (run_sanitize / run_scan_only)
+├── rulepack.py               # Rulepack loading and validation
 ├── steps/
-│   ├── fetch.py            # Clone / copy
-│   ├── inventory.py        # Обход дерева, классификация
-│   ├── scan.py             # Pre-scan и Post-scan рабочего дерева
-│   ├── redact.py           # Применение замен
-│   ├── history_scan.py     # Скан метаданных коммитов (все ветки)
-│   ├── history_blob_scan.py# Скан содержимого блобов (все ветки)
-│   ├── history_rewrite.py  # git-filter-repo
-│   ├── gate.py             # Проверка гейтов
-│   └── package.py          # git bundle create
+│   ├── fetch.py              # Clone / copy
+│   ├── inventory.py          # File tree walk and classification
+│   ├── scan.py               # Pre-scan and post-scan of working tree
+│   ├── redact.py             # Apply replacements
+│   ├── history_scan.py       # Scan commit metadata (all branches)
+│   ├── history_blob_scan.py  # Scan file content blobs (all branches)
+│   ├── history_rewrite.py    # git-filter-repo
+│   ├── gate.py               # Gate checks
+│   └── package.py            # git bundle create
 ├── detectors/
-│   ├── base.py             # Detector ABC, Finding, ScanTarget, Zone
-│   ├── secrets.py          # Обёртка gitleaks
-│   ├── regex_pii.py        # Email, phone, IP, JWT, URL
-│   ├── dictionary.py       # Aho-Corasick по словарям
-│   ├── endpoint.py         # Внутренние домены, приватные IP
-│   └── ner.py              # Transformer NER: PER, ORG (локальный + HTTP-режим)
+│   ├── base.py               # Detector ABC, Finding, ScanTarget, Zone
+│   ├── secrets.py            # gitleaks wrapper
+│   ├── regex_pii.py          # Email, phone, IP, JWT, URL
+│   ├── dictionary.py         # Aho-Corasick over dict files
+│   ├── endpoint.py           # Internal domains, private IPs
+│   └── ner.py                # Transformer NER: PER, ORG (local + HTTP mode)
 ├── extractors/
-│   ├── treesitter.py       # Tree-sitter extractor
-│   └── fallback.py         # Regex-fallback для комментариев
+│   ├── treesitter.py         # Tree-sitter extractor
+│   └── fallback.py           # Regex fallback for comments
 ├── redaction/
-│   ├── replacements.py     # HMAC-маски
-│   ├── applier.py          # Замена span'ов в файле
-│   └── git_identity.py     # Нормализация авторов
-├── batch/                  # Batch-режим: обработка тысяч репозиториев
-│   ├── config.py           # BatchConfig + load_batch_config()
-│   ├── gitlab_client.py    # GitLabClient: enumerate, ensure_delivery, push_bundle
-│   ├── ner_service.py      # NER HTTP-сервис (FastAPI, GPU, 1 копия модели)
-│   ├── worker.py           # process_repo() — worker subprocess
-│   └── orchestrator.py     # run_batch() / list_repos()
-└── rules/                  # Встроенный rulepack (symlink → examples/rules)
-    ├── VERSION
-    ├── policies.yaml
-    ├── extractors.yaml
-    ├── dict/
-    └── regex/
+│   ├── replacements.py       # HMAC masks
+│   ├── applier.py            # Span replacement in files
+│   └── git_identity.py       # Author normalization
+└── batch/                    # Batch mode for thousands of repositories
+    ├── config.py
+    ├── gitlab_client.py
+    ├── ner_service.py
+    ├── worker.py
+    └── orchestrator.py
 
 examples/
-├── rules/                  # Пример rulepack
-└── batch.yaml              # Пример batch-конфигурации
+├── rules/                    # Example rulepack
+└── batch.yaml                # Example batch config
 
 scripts/
-└── run-batch.sh            # Фоновый запуск batch на Linux (systemd-run / nohup)
+└── run-batch.sh              # Background batch runner (systemd-run / nohup)
 ```
 
-### Добавить новый детектор
+### Adding a new detector
 
 ```python
 # repo_sanitizer/detectors/my_detector.py
@@ -972,37 +210,22 @@ from repo_sanitizer.detectors.base import Category, Detector, Finding, ScanTarge
 class MyDetector(Detector):
     def detect(self, target: ScanTarget) -> list[Finding]:
         findings = []
-        # ... логика поиска ...
+        # ... detection logic ...
         return findings
 ```
 
-Зарегистрировать в `steps/scan.py` → `build_detectors()`.
-
-### Тесты
-
-| Файл | Что тестирует |
-|---|---|
-| `test_rulepack.py` | Загрузка rulepack, валидация VERSION, grammar_package |
-| `test_redaction.py` | Детерминированность масок, замена span'ов, manifest |
-| `test_inventory.py` | Классификация файлов, deny_globs, allow_suffixes |
-| `test_detectors.py` | Email, JWT, зоны, zone-filtering |
-| `test_extractors.py` | Tree-sitter (Python, JS), fallback, on_parse_error |
-| `test_ner.py` | NER (PER/ORG, en+ru) — пропускается без transformers |
-| `test_pipeline_snapshot.py` | Полный цикл sanitize на `fixtures/sample_repo/` |
-| `test_pipeline_history.py` | Переписывание истории на `fixtures/history_repo/` |
-
-Интеграционные тесты автоматически пропускаются, если `gitleaks` или `git-filter-repo` не установлены.
+Register in `steps/scan.py` → `build_detectors()`.
 
 ---
 
-## Ограничения
+## Limitations
 
-Следующее **не входит** в скоуп:
+The following are out of scope:
 
-- PR/MR данные из GitHub/GitLab API
-- Wiki-репозитории
-- LFS-объекты (pointer-файлы удаляются, содержимое LFS не выгружается)
-- Рекурсивная обработка submodules (URL в `.gitmodules` ловится EndpointDetector)
-- Переименование файлов/директорий, содержащих PII в пути
-- EXIF-метаданные изображений
-- Подписи коммитов (удаляются при переписывании истории, но не анализируются)
+- PR/MR data from GitHub/GitLab API
+- Wiki repositories
+- LFS objects (pointer files are deleted; LFS content is not fetched)
+- Recursive submodule processing (`.gitmodules` URLs are caught by EndpointDetector)
+- Renaming files or directories whose paths contain PII
+- EXIF metadata in images
+- Commit signatures (stripped during history rewrite, not analyzed)

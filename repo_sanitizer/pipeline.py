@@ -42,6 +42,26 @@ def _finding_summary(findings: list) -> str:
     return f"{len(findings)} findings{suffix}"
 
 
+def _check_ner_service(url: str) -> None:
+    """Verify the NER service is reachable and ready before starting the pipeline."""
+    try:
+        import httpx
+        resp = httpx.get(f"{url}/health", timeout=5.0)
+        status = resp.json().get("status")
+        if status != "ready":
+            raise RuntimeError(
+                f"NER service at {url} responded but is not ready (status={status!r}). "
+                "Wait for the model to finish loading."
+            )
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(
+            f"NER service at {url} is unreachable: {exc}\n"
+            f"Start it with: repo-sanitizer ner-service --port <PORT>"
+        ) from exc
+
+
 def _build_context(
     source: str,
     out_dir: Path,
@@ -90,6 +110,9 @@ def run_sanitize(
     ner_service_url: Optional[str] = None,
 ) -> int:
     """Run the full sanitize pipeline. Returns exit code (0=pass, 1=fail)."""
+    if ner_service_url:
+        _check_ner_service(ner_service_url)
+
     ctx, rulepack = _build_context(
         source, out_dir, rulepack_path, salt_env, rev, max_file_mb,
         history_since, history_until, ner_device, ner_service_url,
@@ -230,6 +253,9 @@ def run_scan_only(
     ner_service_url: Optional[str] = None,
 ) -> int:
     """Run scan-only pipeline (no redaction). Covers working tree + all history."""
+    if ner_service_url:
+        _check_ner_service(ner_service_url)
+
     ctx, rulepack = _build_context(
         source, out_dir, rulepack_path, salt_env, rev, max_file_mb,
         history_since, history_until, ner_device, ner_service_url,

@@ -175,24 +175,33 @@ class NERDetector(Detector):
         if not chunks:
             return []
         if self.service_url:
-            try:
-                import httpx
-                resp = httpx.post(
-                    f"{self.service_url}/ner",
-                    json={"texts": chunks},
-                    timeout=600.0,
-                )
-                if resp.status_code != 200:
-                    logger.warning(
-                        "NER service returned %d. Response body: %s",
-                        resp.status_code,
-                        resp.text[:1000],
+            import httpx
+            last_exc: Exception | None = None
+            for attempt, delay in enumerate([0, 2, 5, 10]):
+                if delay:
+                    import time as _time
+                    _time.sleep(delay)
+                try:
+                    resp = httpx.post(
+                        f"{self.service_url}/ner",
+                        json={"texts": chunks},
+                        timeout=600.0,
                     )
-                resp.raise_for_status()
-                return resp.json()["results"]
-            except Exception as e:
-                logger.warning("NER service call failed: %s", e)
-                return [[] for _ in chunks]
+                    if resp.status_code != 200:
+                        logger.warning(
+                            "NER service returned %d. Response body: %s",
+                            resp.status_code,
+                            resp.text[:1000],
+                        )
+                    resp.raise_for_status()
+                    return resp.json()["results"]
+                except Exception as exc:
+                    last_exc = exc
+                    logger.warning("NER service attempt %d/3 failed: %s", attempt + 1, exc)
+            raise RuntimeError(
+                f"NER service at {self.service_url} unreachable after 3 retries: {last_exc}. "
+                "Restart the service and re-run."
+            )
         if self.config.backend == "gliner":
             return [self._infer_gliner(chunk) for chunk in chunks]
         pipe = self._ensure_pipeline()

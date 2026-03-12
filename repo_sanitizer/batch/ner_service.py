@@ -16,10 +16,16 @@ Dynamic batching (inference-time accumulation): the batcher waits for the first
 request, yields one event-loop tick so all concurrent HTTP handlers can enqueue
 their chunks, then drains the queue and dispatches a single GPU call. The batch
 size self-adjusts to load — no arbitrary timeout needed.
+
+Idle shutdown: if no /ner requests are received for ``idle_timeout`` seconds,
+the service sends SIGTERM to itself and exits cleanly. Pass ``idle_timeout=0``
+to disable.
 """
 import asyncio
 import logging
 import multiprocessing
+import os
+import signal
 import time
 from typing import Any
 
@@ -36,6 +42,7 @@ def _make_app(
     backend: str,
     min_score: float,
     entity_types: list[str],
+    idle_timeout: float = 0.0,
 ) -> Any:
     from fastapi import FastAPI, Request
     from fastapi.responses import JSONResponse
@@ -44,6 +51,7 @@ def _make_app(
     _pipeline: Any = None
     _gliner: Any = None
     _queue: asyncio.Queue = asyncio.Queue()
+    _last_request_time: float = time.monotonic()
 
     def _run_hf(texts: list[str]) -> list[list[dict]]:
         raw = _pipeline(texts, batch_size=batch_size)
@@ -101,6 +109,16 @@ def _make_app(
                     fut.set_result(raw[offset : offset + n])
                 offset += n
 
+    async def _idle_watchdog() -> None:
+        """Shut down the service if no /ner requests for idle_timeout seconds."""
+        nonlocal _last_request_time
+        while True:
+            await asyncio.sleep(10)
+            if time.monotonic() - _last_request_time > idle_timeout:
+                logger.info("NER service idle for %.0fs, shutting down.", idle_timeout)
+                os.kill(os.getpid(), signal.SIGTERM)
+                return
+
     @app.on_event("startup")
     async def _startup() -> None:
         nonlocal _pipeline, _gliner
@@ -132,6 +150,8 @@ def _make_app(
                 raise RuntimeError(f"Failed to load NER model '{model_name}': {e}")
         logger.info("NER model ready; starting dynamic batcher")
         asyncio.create_task(_batching_loop())
+        if idle_timeout > 0:
+            asyncio.create_task(_idle_watchdog())
 
     @app.get("/health")
     def health() -> JSONResponse:
@@ -140,6 +160,8 @@ def _make_app(
 
     @app.post("/ner")
     async def ner(request: Request) -> JSONResponse:
+        nonlocal _last_request_time
+        _last_request_time = time.monotonic()
         body = await request.json()
         texts = body.get("texts", [])
         if not texts:
@@ -176,6 +198,7 @@ def _run_server(
     backend: str,
     min_score: float,
     entity_types: list[str],
+    idle_timeout: float = 0.0,
 ) -> None:
     """Entry point for the service subprocess."""
     import uvicorn
@@ -188,7 +211,7 @@ def _run_server(
     for name in ("transformers", "filelock", "huggingface_hub", "urllib3", "httpx"):
         logging.getLogger(name).setLevel(logging.ERROR)
 
-    app = _make_app(model_name, device, batch_size, backend, min_score, entity_types)
+    app = _make_app(model_name, device, batch_size, backend, min_score, entity_types, idle_timeout)
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 

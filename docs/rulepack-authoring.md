@@ -1,18 +1,20 @@
-# Создание rulepack
+# Rulepack authoring
 
-Rulepack — это директория с правилами, которая полностью определяет, что считается чувствительными данными и как с ними работать.
+A rulepack is a directory that fully defines what counts as sensitive data and how to handle it.
 
-Полный пример со всеми возможными параметрами и комментариями: `examples/full-rulepack/`.
+Full example with all fields and comments: `examples/full-rulepack/`.
 
-## Минимальный рабочий rulepack
+---
+
+## Minimal rulepack
 
 ```bash
 mkdir -p my-rules/{dict,regex}
 
-# Обязательный файл версии
+# Required version file
 echo "1.0.0" > my-rules/VERSION
 
-# Минимальные политики
+# Minimal policies
 cat > my-rules/policies.yaml << 'EOF'
 deny_globs:
   - "**/.env"
@@ -27,7 +29,7 @@ binary_allow_extensions: [png, jpg, gif, svg]
 max_file_mb: 20
 EOF
 
-# Минимальный extractors.yaml
+# Minimal extractors
 cat > my-rules/extractors.yaml << 'EOF'
 treesitter:
   languages:
@@ -47,7 +49,7 @@ fallback_extractor:
     - pattern: '//.*$'
 EOF
 
-# Минимальные regex-паттерны
+# Minimal regex patterns
 cat > my-rules/regex/pii_patterns.yaml << 'EOF'
 patterns:
   - name: email
@@ -56,7 +58,7 @@ patterns:
     severity: HIGH
 EOF
 
-# Пустые словари
+# Empty dictionaries
 touch my-rules/dict/domains.txt
 touch my-rules/dict/orgs.txt
 touch my-rules/dict/clients.txt
@@ -65,22 +67,22 @@ touch my-rules/dict/codenames.txt
 
 ---
 
-## policies.yaml — полная схема
+## policies.yaml — full schema
 
 ### deny_globs
 
-Список glob-паттернов (в стиле `fnmatch`). Файл, попавший в deny_glob:
-- удаляется (`DELETE`), если у него нет разрешённого суффикса
-- сканируется (`SCAN`), если суффикс входит в `allow_suffixes`
+`fnmatch`-style glob patterns. A file that matches a deny glob:
+- is **deleted** (`DELETE`) if it has no allowed suffix
+- is **scanned** (`SCAN`) if its suffix is in `allow_suffixes`
 
-Матчинг учитывает **базовое имя файла без allow-суффикса**. Например, `.env.template` матчится на `**/.env` и получает `SCAN`.
+Matching uses the **base name with the allow-suffix stripped**. For example, `.env.template` matches `**/.env` and gets action `SCAN`.
 
 ```yaml
 deny_globs:
-  - "**/.env"           # точный файл .env в любой директории
-  - "**/config.*"       # любой файл с именем config.* (config.yaml, config.prod.json, …)
+  - "**/.env"           # any .env file in any directory
+  - "**/config.*"       # config.yaml, config.prod.json, …
   - "**/secrets.*"
-  - "**/*.key"          # любой .key файл
+  - "**/*.key"
   - "**/*.pem"
   - "**/.mailmap"
   - "**/CODEOWNERS"
@@ -88,17 +90,17 @@ deny_globs:
 
 ### allow_suffixes
 
-Суффиксы, которые разрешают сохранить файл из deny_globs и просканировать его:
+Suffixes that allow a deny-glob file to be kept and scanned instead of deleted:
 
 ```yaml
 allow_suffixes: [".example", ".sample", ".template", ".dist"]
 ```
 
-Пример: `config.yaml` → DELETE, но `config.yaml.example` → SCAN.
+Example: `config.yaml` → DELETE, but `config.yaml.example` → SCAN.
 
 ### binary_deny_extensions / binary_allow_extensions
 
-Расширения **без точки**. Применяются к файлам, классифицированным как бинарные:
+Extensions **without a dot**. Applied to files classified as binary:
 
 ```yaml
 binary_deny_extensions:
@@ -124,42 +126,40 @@ binary_allow_extensions:
   - ico
 ```
 
-### NER-настройки
+### NER settings
 
-Поддерживаются два backend'а для обнаружения именованных сущностей.
+Two backends are supported for named-entity recognition.
 
-#### HuggingFace backend (по умолчанию)
+#### HuggingFace backend (default)
 
-Использует BERT-based трансформеры через `transformers` + `torch`. Быстрее на GPU, но требует тяжёлых зависимостей.
+Uses BERT-based transformers via `transformers` + `torch`. Faster on GPU, but requires heavy dependencies.
 
 ```yaml
 ner:
-  backend: hf   # или просто не указывать — hf по умолчанию
+  backend: hf   # or omit — hf is the default
 
-  # Модель из HuggingFace Hub или локальный путь
+  # Model from HuggingFace Hub or local path
   model: Davlan/bert-base-multilingual-cased-ner-hrl
 
-  # Минимальный confidence score для сохранения сущности (0.0 – 1.0)
+  # Minimum confidence score (0.0 – 1.0)
   min_score: 0.7
 
-  # Какие entity-типы обнаруживать
+  # Entity types to detect
   entity_types: [PER, ORG]
 
-  # Устройство для запуска модели
-  # cpu      — только CPU (по умолчанию)
-  # cuda     — первый доступный GPU NVIDIA
-  # cuda:0   — конкретный GPU по индексу
-  # auto     — Accelerate автоматически распределяет модель (pip install accelerate)
+  # Device for inference
+  # cpu    — CPU only (default)
+  # cuda   — first available NVIDIA GPU
+  # cuda:0 — specific GPU by index
+  # auto   — Accelerate distributes automatically (pip install accelerate)
   device: cpu
 ```
 
-Приоритет: CLI `--ner-device` переопределяет `device` из `policies.yaml`.
+CLI `--ner-device` overrides `device` from `policies.yaml`. If CUDA is requested but unavailable, a warning is logged and CPU is used.
 
-Если CUDA запрошена, но `torch.cuda.is_available()` возвращает `False` — выводится предупреждение и происходит автоматический откат на CPU.
+#### GLiNER backend (recommended)
 
-#### GLiNER backend (рекомендуется)
-
-[GLiNER](https://github.com/urchade/GLiNER) — специализированная zero-shot NER архитектура. Аналогичная скорость, значительно меньше ложных срабатываний. Не требует `torch`.
+[GLiNER](https://github.com/urchade/GLiNER) — zero-shot NER architecture. Comparable speed, significantly fewer false positives. Does not require `torch`.
 
 ```bash
 pip install gliner
@@ -168,16 +168,16 @@ pip install gliner
 ```yaml
 ner:
   backend: gliner
-  model: urchade/gliner_multi-v2.1   # многоязычная, ~186M
-  # model: urchade/gliner_large-v2.1 # крупнее, выше recall
+  model: urchade/gliner_multi-v2.1   # multilingual, ~186M params
+  # model: urchade/gliner_large-v2.1 # larger, higher recall
   min_score: 0.5
   entity_types: [PER, ORG]
-  # device: игнорируется для gliner backend
+  # device: ignored for gliner backend
 ```
 
-GLiNER использует описательные метки вместо кодов: `PER` → `"person name"`, `ORG` → `"organization name"`. Маппинг выполняется автоматически.
+GLiNER uses descriptive labels: `PER` → `"person name"`, `ORG` → `"organization name"`. The mapping is handled automatically.
 
-Для офлайн-среды скачайте модель заранее и укажите локальный путь:
+For offline environments, download the model in advance and specify the local path:
 
 ```yaml
 ner:
@@ -189,11 +189,11 @@ ner:
 
 ---
 
-## extractors.yaml — полная схема
+## extractors.yaml — full schema
 
-### Добавление языка
+### Adding a language
 
-Установите pip-пакет грамматики и добавьте запись:
+Install the grammar package and add an entry:
 
 ```bash
 uv add tree-sitter-go
@@ -208,17 +208,17 @@ treesitter:
       extract_zones: [comment_line, comment_block, string_literal]
 ```
 
-После добавления нового языка убедитесь, что пакет установлен:
+Verify installation:
 
 ```bash
 repo-sanitizer install-grammars --rulepack ./my-rules
 ```
 
-Если пакет не установлен — конвейер продолжит работу с `FallbackExtractor` для файлов этого языка, но выведет предупреждение.
+If the package is not installed, the pipeline continues with `FallbackExtractor` for that language's files, but logs a warning.
 
-### Особые случаи: tree-sitter-typescript
+### Special case: tree-sitter-typescript
 
-Пакет `tree-sitter-typescript` экспортирует `language_typescript()` и `language_tsx()` вместо стандартного `language()`. Используйте разные `id`:
+This package exports `language_typescript()` and `language_tsx()` instead of the standard `language()`. Use separate IDs:
 
 ```yaml
 - id: typescript
@@ -232,35 +232,35 @@ repo-sanitizer install-grammars --rulepack ./my-rules
   extract_zones: [comment_line, comment_block, string_literal, template_literal]
 ```
 
-### extract_zones — доступные значения
+### extract_zones values
 
-| Значение | Что захватывает |
+| Value | What it captures |
 |---|---|
-| `comment_line` | `// ...` и `# ...` (однострочные комментарии) |
-| `comment_block` | `/* ... */` (блочные комментарии) |
-| `docstring` | Docstrings Python (`"""..."""` как первый statement) |
-| `string_literal` | Строковые литералы (`"..."`, `'...'`) |
-| `template_literal` | Template literals JS/TS (`` `...` ``) |
+| `comment_line` | `// ...` and `# ...` (single-line comments) |
+| `comment_block` | `/* ... */` (block comments) |
+| `docstring` | Python docstrings (`"""..."""` as first statement) |
+| `string_literal` | String literals (`"..."`, `'...'`) |
+| `template_literal` | JS/TS template literals (`` `...` ``) |
 
 ### zone_policy
 
 ```yaml
 zone_policy:
-  # Включать ли строковые литералы в зоны редактирования
-  # false → только комментарии и docstrings
+  # Include string literals in redactable zones
+  # false → only comments and docstrings
   redact_string_literals: true
 
-  # Минимальная длина строки для включения в зону
+  # Minimum string length to include in a zone
   min_string_length: 4
 ```
 
 ### on_parse_error
 
-| Значение | Поведение при ошибке парсинга |
+| Value | Behavior on parse failure |
 |---|---|
-| `fallback` | Использовать FallbackExtractor (regex-комментарии) |
-| `skip` | Не сканировать файл вообще |
-| `fail` | Бросить исключение, остановить конвейер |
+| `fallback` | Use FallbackExtractor (regex comments) |
+| `skip` | Do not scan the file at all |
+| `fail` | Raise an exception and stop the pipeline |
 
 ### fallback_extractor
 
@@ -274,15 +274,15 @@ fallback_extractor:
     - pattern: ';.*$'      # Assembly, INI
 ```
 
-Паттерны — Python regex с флагом `re.MULTILINE`. Каждое совпадение становится зоной.
+Patterns are Python regex with `re.MULTILINE`. Each match becomes a zone.
 
 ---
 
-## regex/pii_patterns.yaml — полная схема
+## regex/pii_patterns.yaml — full schema
 
 ```yaml
 patterns:
-  - name: email                     # уникальное имя паттерна
+  - name: email                     # unique pattern name
     pattern: '[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
     category: PII                   # PII | SECRET | ENDPOINT | DICTIONARY
     severity: HIGH                  # CRITICAL | HIGH | MEDIUM | LOW | INFO
@@ -303,18 +303,18 @@ patterns:
     severity: MEDIUM
 ```
 
-Паттерны применяются:
-- При сканировании рабочего дерева (шаги 3, 5) — к тексту в зонах для code-файлов, ко всему файлу для docs/config.
-- При сканировании блобов истории (шаги 6b, 8b) — ко всему содержимому каждого блоба.
-- При переписывании истории (шаг 7) — в `blob_callback` через байтовые регулярные выражения; совпадение заменяется на `[name:{hash12}]`.
+Patterns are applied:
+- During working tree scanning (steps 3, 5) — to zone bytes for code files, to entire content for docs/config files.
+- During history blob scanning (steps 6b, 8b) — to entire blob content.
+- During history rewrite (step 7) — in the `blob_callback` as byte-level regex; matches are replaced with `[name:{hash12}]`.
 
-**Важно:** паттерны применяются как `re.compile(pattern)` — без флагов. Добавьте `(?i)` в начало для case-insensitive.
+**Note:** patterns are compiled as `re.compile(pattern)` — no flags by default. Add `(?i)` for case-insensitive matching.
 
 ---
 
-## Словари (dict/*.txt)
+## Dictionary files (dict/*.txt)
 
-Один термин на строку. Строки, начинающиеся с `#`, — комментарии.
+One term per line. Lines starting with `#` are comments.
 
 ```
 # domains.txt
@@ -325,7 +325,7 @@ staging.mycompany.io
 
 ```
 # codenames.txt
-# Список кодовых названий проектов
+# Project codenames
 ProjectPhoenix
 OperationAlpha
 InitiativeZero
@@ -333,39 +333,38 @@ InitiativeZero
 
 ```
 # clients.txt
-Клиент А
-Client B Corp
+Client A Corp
 SomeEnterprise Ltd
 ```
 
-Поиск выполняется алгоритмом Aho-Corasick (case-insensitive) — работает за O(длина текста) независимо от числа терминов.
+Search uses Aho-Corasick (case-insensitive) — O(text length) regardless of dictionary size.
 
-Домены из `dict/domains.txt` дополнительно используются `EndpointDetector` при сканировании.
+Domains in `dict/domains.txt` are also used by `EndpointDetector` during scanning.
 
 ---
 
-## Приоритеты конфигурации
+## Configuration priority
 
 ```
 CLI --max-file-mb 50
-    ↓ если не задан
+    ↓ if not set
 env REPO_SANITIZER_MAX_FILE_MB=30
-    ↓ если не задан
+    ↓ if not set
 rulepack/policies.yaml: max_file_mb: 20
-    ↓ если не задан
+    ↓ if not set
 default: 20
 ```
 
 ---
 
-## Контроль версий rulepack
+## Version control for rulepacks
 
-Рекомендуется хранить rulepack в отдельном Git-репозитории:
+Store the rulepack in a separate Git repository:
 
 ```
 company-sanitizer-rules/
-├── VERSION          # bumping при изменении правил
-├── CHANGELOG.md     # что изменилось и почему
+├── VERSION          # bump when rules change
+├── CHANGELOG.md     # what changed and why
 ├── policies.yaml
 ├── extractors.yaml
 ├── dict/
@@ -375,4 +374,4 @@ company-sanitizer-rules/
     └── pii_patterns.yaml
 ```
 
-При изменении словарей или паттернов — поднять версию в `VERSION`. Это позволяет отслеживать, с каким rulepack был создан конкретный бандл (версия логируется в артефактах).
+Bump `VERSION` whenever dictionaries or patterns change. The version is logged in artifacts, making it easy to trace which rulepack produced a given bundle.

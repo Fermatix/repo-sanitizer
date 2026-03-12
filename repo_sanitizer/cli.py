@@ -98,6 +98,11 @@ def sanitize(
         None, "--ner-device",
         help="Device for NER model: cpu | cuda | cuda:0 | cuda:1 | auto (overrides policies.yaml)"
     ),
+    ner_service_url: Optional[str] = typer.Option(
+        None, "--ner-service-url",
+        help="URL of a running NER service (e.g. http://localhost:8765). "
+             "Skips local model loading; multiple runs can share one service."
+    ),
 ) -> None:
     """Sanitize a Git repository: scan, redact, rewrite history, and package."""
     _setup_logging()
@@ -114,6 +119,7 @@ def sanitize(
             history_since=history_since,
             history_until=history_until,
             ner_device=ner_device,
+            ner_service_url=ner_service_url,
         )
     except Exception as e:
         logging.getLogger(__name__).error("Fatal error: %s", e)
@@ -137,6 +143,11 @@ def scan(
         None, "--ner-device",
         help="Device for NER model: cpu | cuda | cuda:0 | cuda:1 | auto (overrides policies.yaml)"
     ),
+    ner_service_url: Optional[str] = typer.Option(
+        None, "--ner-service-url",
+        help="URL of a running NER service (e.g. http://localhost:8765). "
+             "Skips local model loading; multiple runs can share one service."
+    ),
 ) -> None:
     """Scan a Git repository for PII, secrets, and sensitive data (read-only)."""
     _setup_logging()
@@ -153,6 +164,7 @@ def scan(
             history_since=history_since,
             history_until=history_until,
             ner_device=ner_device,
+            ner_service_url=ner_service_url,
         )
     except Exception as e:
         logging.getLogger(__name__).error("Fatal error: %s", e)
@@ -203,6 +215,65 @@ def install_grammars(
 
     typer.echo("\nDone. Re-run to verify:")
     typer.echo(f"  repo-sanitizer install-grammars --rulepack {rulepack}")
+
+
+@app.command("ner-service")
+def ner_service(
+    port: int = typer.Option(8765, "--port", help="TCP port to listen on"),
+    device: str = typer.Option("cpu", "--device", help="Device: cpu | cuda | cuda:0 | auto"),
+    backend: str = typer.Option("hf", "--backend", help="Backend: hf | gliner"),
+    batch_size: int = typer.Option(32, "--batch-size", help="Max chunks per GPU forward pass"),
+    model: Optional[str] = typer.Option(None, "--model", help="Model name (overrides rulepack)"),
+    rulepack: Optional[Path] = typer.Option(None, "--rulepack", help="Rulepack to read NER config from"),
+    idle_timeout: int = typer.Option(
+        60, "--idle-timeout",
+        help="Seconds of inactivity before the service shuts itself down. 0 = never."
+    ),
+) -> None:
+    """Start a shared NER inference service (foreground).
+
+    Load the model once and serve all sanitize/scan runs via --ner-service-url.
+    The service stops automatically after --idle-timeout seconds of no requests,
+    or when you press Ctrl+C.
+    """
+    _setup_logging()
+    from repo_sanitizer.batch.ner_service import _run_server
+
+    # Apply rulepack defaults, then let explicit CLI flags override
+    resolved_model = model
+    resolved_device = device
+    resolved_backend = backend
+    if rulepack is not None:
+        try:
+            from repo_sanitizer.rulepack import load_rulepack
+            rp = load_rulepack(rulepack)
+            if resolved_model is None:
+                resolved_model = rp.ner.model
+            if device == "cpu":  # still at default — use rulepack value
+                resolved_device = rp.ner.device
+            if backend == "hf":  # still at default — use rulepack value
+                resolved_backend = rp.ner.backend
+        except Exception as e:
+            logging.getLogger(__name__).error("Cannot load rulepack: %s", e)
+            raise typer.Exit(code=1)
+
+    if resolved_model is None:
+        resolved_model = "Davlan/bert-base-multilingual-cased-ner-hrl"
+
+    logging.getLogger(__name__).info(
+        "Starting NER service on port %d (model=%s, backend=%s, device=%s, idle_timeout=%ds)",
+        port, resolved_model, resolved_backend, resolved_device, idle_timeout,
+    )
+    _run_server(
+        model_name=resolved_model,
+        device=resolved_device,
+        port=port,
+        batch_size=batch_size,
+        backend=resolved_backend,
+        min_score=0.7,
+        entity_types=["PER", "ORG"],
+        idle_timeout=float(idle_timeout),
+    )
 
 
 @batch_app.command("run")
