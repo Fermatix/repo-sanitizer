@@ -52,6 +52,13 @@ def _get_token(config: BatchConfig) -> str:
     return token
 
 
+def _ensure_delivery_project_isolated(
+    partner: str, name: str, config: BatchConfig, token: str
+) -> str:
+    """Create one delivery project using a fresh GitLabClient (own HTTP session)."""
+    return _make_gitlab_client(config, token).ensure_delivery_project(partner, name)
+
+
 def run_batch(
     config: BatchConfig,
     override_partners: Optional[list[str]] = None,
@@ -59,7 +66,8 @@ def run_batch(
     retry_failed: bool = False,
 ) -> int:
     """Run the full batch pipeline. Returns 0 if all repos succeeded, 1 otherwise."""
-    client = _make_gitlab_client(config, _get_token(config))
+    token = _get_token(config)
+    client = _make_gitlab_client(config, token)
 
     scope = _build_scope(config.scope, override_partners, override_repos)
     all_tasks = client.list_repos(scope)
@@ -84,12 +92,15 @@ def run_batch(
     for partner in unique_partners:
         client.ensure_delivery_partner_group(partner)
 
-    # Create projects in parallel — groups already exist, safe to parallelize
-    # Pool size ≤ 8 to stay within urllib3's default connection pool (10)
+    # Create projects in parallel — groups already exist, safe to parallelize.
+    # Each thread gets its own GitLabClient (own requests.Session) to avoid
+    # ConnectionResetError caused by concurrent use of a shared session.
     logger.info("Ensuring delivery projects exist (%d repos)...", len(tasks))
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
         fut_to_task = {
-            pool.submit(client.ensure_delivery_project, t.partner, t.name): t
+            pool.submit(
+                _ensure_delivery_project_isolated, t.partner, t.name, config, token
+            ): t
             for t in tasks
         }
         for fut in concurrent.futures.as_completed(fut_to_task):
