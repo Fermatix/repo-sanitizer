@@ -190,6 +190,6 @@ ner:
   model: Babelscape/wikineural-multilingual-ner
   min_score: 0.3
   entity_types: [PER, ORG]
-  device: cuda:0
+  device: cpu
 
 max_file_mb: 20
