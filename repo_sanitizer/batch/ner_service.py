@@ -80,7 +80,13 @@ def _make_app(
         return results
 
     async def _batching_loop() -> None:
-        """Inference-time accumulation: collect all pending requests, then one GPU call."""
+        """Inference-time accumulation: collect all pending requests, then GPU calls.
+
+        Accumulated texts are processed in sub-batches of *batch_size* so that
+        no single inference call grows unboundedly when many workers fire at once.
+        Each future is resolved as soon as all of its texts have been processed,
+        so short requests are not blocked waiting for longer ones to finish.
+        """
         loop = asyncio.get_running_loop()
         _infer = _run_gliner if backend == "gliner" else _run_hf
         while True:
@@ -93,21 +99,38 @@ def _make_app(
             while not _queue.empty():
                 batch_items.append(_queue.get_nowait())
 
-            all_texts = [t for texts, _ in batch_items for t in texts]
-            try:
-                raw = await loop.run_in_executor(None, lambda: _infer(all_texts))
-            except Exception as exc:
-                for _, fut in batch_items:
-                    if not fut.done():
-                        fut.set_exception(exc)
-                continue
+            # Flatten texts; record which future owns each slot
+            all_texts: list[str] = []
+            slot_owner: list[int] = []
+            for idx, (texts, _) in enumerate(batch_items):
+                all_texts.extend(texts)
+                slot_owner.extend([idx] * len(texts))
 
-            offset = 0
-            for texts, fut in batch_items:
-                n = len(texts)
-                if not fut.done():
-                    fut.set_result(raw[offset : offset + n])
-                offset += n
+            per_fut_results: list[list[list[dict]]] = [[] for _ in batch_items]
+            per_fut_total = [len(texts) for texts, _ in batch_items]
+
+            # Process in sub-batches; resolve each future the moment its texts are ready
+            failed = False
+            for start in range(0, len(all_texts), batch_size):
+                chunk = all_texts[start : start + batch_size]
+                try:
+                    chunk_results = await loop.run_in_executor(
+                        None, lambda c=chunk: _infer(c)
+                    )
+                except Exception as exc:
+                    for _, fut in batch_items:
+                        if not fut.done():
+                            fut.set_exception(exc)
+                    failed = True
+                    break
+
+                for j, res in enumerate(chunk_results):
+                    owner = slot_owner[start + j]
+                    per_fut_results[owner].append(res)
+                    if len(per_fut_results[owner]) == per_fut_total[owner]:
+                        _, fut = batch_items[owner]
+                        if not fut.done():
+                            fut.set_result(per_fut_results[owner])
 
     async def _idle_watchdog() -> None:
         """Shut down the service if no /ner requests for idle_timeout seconds."""
