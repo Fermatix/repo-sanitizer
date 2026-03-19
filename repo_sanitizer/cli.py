@@ -206,12 +206,46 @@ def install_grammars(
         typer.echo("All grammar packages are already installed.")
         return
 
-    typer.echo(f"\nInstalling {len(to_install)} package(s)...")
-    cmd = [sys.executable, "-m", "pip", "install"] + to_install
-    result = subprocess.run(cmd)
-    if result.returncode != 0:
-        logging.getLogger(__name__).error("pip install failed (exit %d)", result.returncode)
-        raise typer.Exit(code=result.returncode)
+    # Step 1: install tree-sitter-language-pack first — it bundles many grammars
+    # that have no standalone PyPI package (Vue, Svelte, etc.).
+    typer.echo("\nInstalling tree-sitter-language-pack...")
+    lp_result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "tree-sitter-language-pack"],
+        capture_output=True,
+    )
+    if lp_result.returncode == 0:
+        typer.echo("  ✓ installed tree-sitter-language-pack")
+    else:
+        typer.echo("  ✗ tree-sitter-language-pack install failed (continuing anyway)")
+
+    # Step 2: re-check which packages are still missing now that language-pack may cover some.
+    statuses = check_grammar_packages(rp.extractor)
+    still_missing = [
+        s.grammar_package
+        for s in statuses
+        if not (s.installed and not s.missing_attribute)
+    ]
+
+    # Step 3: install remaining individual packages one by one.
+    if still_missing:
+        typer.echo(f"\nInstalling {len(still_missing)} remaining package(s)...")
+        failed = []
+        for pkg in still_missing:
+            cmd = [sys.executable, "-m", "pip", "install", pkg]
+            result = subprocess.run(cmd, capture_output=True)
+            if result.returncode == 0:
+                typer.echo(f"  ✓ installed {pkg}")
+            else:
+                typer.echo(f"  ✗ skipped {pkg} (not found on PyPI)")
+                failed.append(pkg)
+
+        if failed:
+            logging.getLogger(__name__).warning(
+                "Could not install %d package(s): %s. "
+                "These languages will fall back to the regex extractor.",
+                len(failed),
+                ", ".join(failed),
+            )
 
     typer.echo("\nDone. Re-run to verify:")
     typer.echo(f"  repo-sanitizer install-grammars --rulepack {rulepack}")
