@@ -188,7 +188,7 @@ binary_allow_extensions:
 ner:
   backend: hf      # "hf" (HuggingFace transformers) or "gliner" (recommended)
   model: Babelscape/wikineural-multilingual-ner
-  min_score: 0.3
+  min_score: 0.5
   entity_types: [PER, ORG]
   device: cuda:0
 

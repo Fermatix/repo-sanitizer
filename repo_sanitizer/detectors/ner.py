@@ -185,7 +185,7 @@ class NERDetector(Detector):
                     resp = httpx.post(
                         f"{self.service_url}/ner",
                         json={"texts": chunks},
-                        timeout=600.0,
+                        timeout=3600.0,
                     )
                     if resp.status_code != 200:
                         logger.warning(
