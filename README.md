@@ -102,6 +102,7 @@ On first run, `transformers` downloads `Davlan/bert-base-multilingual-cased-ner-
 | `install-grammars` | Verify and install tree-sitter grammar packages |
 | `batch run` | Process thousands of GitLab repositories in parallel |
 | `batch list` | Dry-run: enumerate repositories without processing |
+| `ner-service` | Start a shared NER inference service (foreground); multiple `sanitize`/`scan` runs share one GPU process |
 
 ### `sanitize` options
 
@@ -115,6 +116,7 @@ On first run, `transformers` downloads `Davlan/bert-base-multilingual-cased-ner-
 | `--history-since DATE` | — | Limit history scan start date (git format: `2024-01-01`) |
 | `--history-until DATE` | — | Limit history scan end date |
 | `--ner-device DEVICE` | `cpu` | NER device: `cpu` \| `cuda` \| `cuda:0` \| `auto` |
+| `--ner-service-url URL` | — | URL of a running `ner-service`. Skips local model loading; multiple runs share one service |
 
 **Exit codes:** `0` = all gates passed, `1` = one or more gates failed.
 
