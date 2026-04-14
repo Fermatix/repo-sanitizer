@@ -391,11 +391,6 @@
     "pushed": true,
     "ts": "2026-03-19T16:27:37.630713+00:00"
   },
-  "iliapnmrv/mo4.mobile": {
-    "status": "failed",
-    "error": "Command '['git', 'push', '--mirror', 'https://oauth2:glpat-xVbtOWFr1AZbd-yAdWKckm86MQp1OmQ0NTYyCw.01.120qaxmh7@gitlab.com/doubletapp/data-llm/partner-private-repos-delivery/iliapnmrv/mo4.mobile.git']' returned non-zero exit status 1.",
-    "ts": "2026-03-19T16:38:02.031305+00:00"
-  },
   "inverse/ulyanovsk-home": {
     "status": "done",
     "bundle_sha256": "787d732065b422529e2ca0f66c1ca528b790e180f3107e4eaa033631edce981d",
@@ -634,11 +629,6 @@
     "pushed": true,
     "ts": "2026-03-20T23:50:03.041248+00:00"
   },
-  "kuzvesov/magento-tt": {
-    "status": "failed",
-    "error": "maximum recursion depth exceeded",
-    "ts": "2026-03-20T23:57:24.358848+00:00"
-  },
   "kuzvesov/webrtc-backend": {
     "status": "done",
     "bundle_sha256": "118d9c7399e1ae95e8fda04346adb00948c01c586bb0823a6b981f78d5326ea3",
@@ -730,16 +720,6 @@
     "pushed": true,
     "ts": "2026-03-21T09:28:05.167757+00:00"
   },
-  "kuzvesov/vinoteka": {
-    "status": "failed",
-    "error": "maximum recursion depth exceeded",
-    "ts": "2026-03-24T23:51:09.945035+00:00"
-  },
-  "kuzvesov/neokancopt": {
-    "status": "failed",
-    "error": "maximum recursion depth exceeded",
-    "ts": "2026-03-25T14:13:49.258198+00:00"
-  },
   "kuzvesov/m-common-microservice": {
     "status": "done",
     "bundle_sha256": "b9e09fbdd3e80122431eaf51fd2d490961ab1573ee72e5236dd9d6b972c7303b",
@@ -775,11 +755,6 @@
     "pushed": true,
     "ts": "2026-03-25T15:13:28.812431+00:00"
   },
-  "kuzvesov/quicksilver-boats": {
-    "status": "failed",
-    "error": "maximum recursion depth exceeded",
-    "ts": "2026-03-25T16:26:40.613655+00:00"
-  },
   "kuzvesov/tt": {
     "status": "done",
     "bundle_sha256": "ce6c6902278a4d88251146fff5b674b302e6afb9e2f7c8f26852e555128ed811",
@@ -814,21 +789,6 @@
     "exit_code": 1,
     "pushed": true,
     "ts": "2026-03-26T00:37:25.731426+00:00"
-  },
-  "kuzvesov/mettrans": {
-    "status": "failed",
-    "error": "maximum recursion depth exceeded",
-    "ts": "2026-03-26T02:10:02.113289+00:00"
-  },
-  "kuzvesov/mtt-tumen": {
-    "status": "failed",
-    "error": "maximum recursion depth exceeded",
-    "ts": "2026-03-26T08:56:10.183265+00:00"
-  },
-  "kuzvesov/moll-system": {
-    "status": "failed",
-    "error": "maximum recursion depth exceeded",
-    "ts": "2026-03-26T09:10:24.000539+00:00"
   },
   "intelsy/delivertransb": {
     "status": "done",
@@ -879,11 +839,6 @@
     "pushed": true,
     "ts": "2026-03-26T13:14:13.582978+00:00"
   },
-  "kuzvesov/videomotors": {
-    "status": "failed",
-    "error": "maximum recursion depth exceeded",
-    "ts": "2026-03-26T20:50:42.265060+00:00"
-  },
   "kuzvesov/m-next-fe": {
     "status": "done",
     "bundle_sha256": "dcc4cb7b7bde1c814e13742bf8deb22eb991cea832b1a7cb111835cf351119c2",
@@ -932,11 +887,6 @@
     "exit_code": 1,
     "pushed": true,
     "ts": "2026-03-26T23:06:04.932333+00:00"
-  },
-  "kuzvesov/shezlongy": {
-    "status": "failed",
-    "error": "maximum recursion depth exceeded",
-    "ts": "2026-03-27T07:03:31.574852+00:00"
   },
   "kuzvesov/map-api": {
     "status": "done",
@@ -1001,11 +951,6 @@
     "pushed": true,
     "ts": "2026-03-27T10:13:24.846388+00:00"
   },
-  "kuzvesov/mtt74": {
-    "status": "failed",
-    "error": "maximum recursion depth exceeded",
-    "ts": "2026-03-27T16:28:27.554851+00:00"
-  },
   "kuzvesov/sensor": {
     "status": "done",
     "bundle_sha256": "b1cdc3efb256764db830ae2c51d2e57ac1f9d9182948bad9b9d193a42ea9a81c",
@@ -1048,11 +993,6 @@
     "pushed": true,
     "ts": "2026-03-28T05:03:35.514871+00:00"
   },
-  "kuzvesov/qpall": {
-    "status": "failed",
-    "error": "maximum recursion depth exceeded",
-    "ts": "2026-03-28T05:08:37.314355+00:00"
-  },
   "kuzvesov/m-user-microservice": {
     "status": "done",
     "bundle_sha256": "2fbf35e4f46be3c2e6ee89fd9e6884d78990737e311c65537fd1dc3fd63c1640",
@@ -1066,11 +1006,6 @@
     "exit_code": 1,
     "pushed": true,
     "ts": "2026-03-28T05:35:47.228278+00:00"
-  },
-  "kuzvesov/moll-system-design": {
-    "status": "failed",
-    "error": "maximum recursion depth exceeded",
-    "ts": "2026-03-28T13:01:30.215090+00:00"
   },
   "kuzvesov/m-components-fe": {
     "status": "done",
@@ -1149,22 +1084,12 @@
     "pushed": true,
     "ts": "2026-03-28T19:23:12.044653+00:00"
   },
-  "kuzvesov/quadro": {
-    "status": "failed",
-    "error": "maximum recursion depth exceeded",
-    "ts": "2026-03-28T21:26:36.076988+00:00"
-  },
   "kuzvesov/fromtheraw-admin": {
     "status": "done",
     "bundle_sha256": "56046055fcacb346e79dea08644fd1cfd77ad8f3b7624d69511715807745d197",
     "exit_code": 1,
     "pushed": true,
     "ts": "2026-03-29T03:14:40.660654+00:00"
-  },
-  "kuzvesov/videomotors-design": {
-    "status": "failed",
-    "error": "maximum recursion depth exceeded",
-    "ts": "2026-03-29T03:59:07.076134+00:00"
   },
   "kuzvesov/celltech": {
     "status": "done",

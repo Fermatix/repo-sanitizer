@@ -874,30 +874,24 @@ class TreeSitterExtractor:
         has_docstring: bool,
         has_string: bool,
     ) -> None:
-        if node.type in wanted_types:
-            if node.type == "comment":
-                zones.append(Zone(start=node.start_byte, end=node.end_byte))
-            elif is_python and node.type in ("string", "concatenated_string"):
-                is_doc = _is_docstring(node, source_bytes)
-                if is_doc and has_docstring:
-                    zones.append(Zone(start=node.start_byte, end=node.end_byte))
-                elif not is_doc and has_string and self.config.redact_string_literals:
-                    if node.end_byte - node.start_byte >= self.config.min_string_length:
-                        zones.append(Zone(start=node.start_byte, end=node.end_byte))
-            else:
-                if node.end_byte - node.start_byte >= self.config.min_string_length:
-                    zones.append(Zone(start=node.start_byte, end=node.end_byte))
+        stack = [node]
+        while stack:
+            current = stack.pop()
+            if current.type in wanted_types:
+                if current.type == "comment":
+                    zones.append(Zone(start=current.start_byte, end=current.end_byte))
+                elif is_python and current.type in ("string", "concatenated_string"):
+                    is_doc = _is_docstring(current, source_bytes)
+                    if is_doc and has_docstring:
+                        zones.append(Zone(start=current.start_byte, end=current.end_byte))
+                    elif not is_doc and has_string and self.config.redact_string_literals:
+                        if current.end_byte - current.start_byte >= self.config.min_string_length:
+                            zones.append(Zone(start=current.start_byte, end=current.end_byte))
+                else:
+                    if current.end_byte - current.start_byte >= self.config.min_string_length:
+                        zones.append(Zone(start=current.start_byte, end=current.end_byte))
 
-        for child in node.children:
-            self._walk_tree(
-                child,
-                source_bytes,
-                wanted_types,
-                zones,
-                is_python,
-                has_docstring,
-                has_string,
-            )
+            stack.extend(reversed(current.children))
 
     def _filter_min_length(self, zones: list[Zone]) -> list[Zone]:
         return [

@@ -97,11 +97,6 @@
     "pushed": true,
     "ts": "2026-03-19T12:59:23.422758+00:00"
   },
-  "kuzvesov/gradiz": {
-    "status": "failed",
-    "error": "maximum recursion depth exceeded",
-    "ts": "2026-03-19T13:00:12.202423+00:00"
-  },
   "kuzvesov/m-main-fe": {
     "status": "done",
     "bundle_sha256": "69a6b2b16c6246db2abc1195970762889b5ba3d00c523e8631912a237daec75b",
@@ -200,27 +195,12 @@
     "pushed": true,
     "ts": "2026-03-19T15:28:09.577610+00:00"
   },
-  "kuzvesov/himkor": {
-    "status": "failed",
-    "error": "maximum recursion depth exceeded",
-    "ts": "2026-03-20T22:06:10.269996+00:00"
-  },
-  "kuzvesov/wine66": {
-    "status": "failed",
-    "error": "maximum recursion depth exceeded",
-    "ts": "2026-03-20T22:15:57.532833+00:00"
-  },
   "kuzvesov/fromtheraw": {
     "status": "done",
     "bundle_sha256": "4f537418264c58e7c394a4bfb216b15dbed592dec18a921c3bab5bff50921477",
     "exit_code": 1,
     "pushed": true,
     "ts": "2026-03-21T06:23:54.744940+00:00"
-  },
-  "kuzvesov/its": {
-    "status": "failed",
-    "error": "maximum recursion depth exceeded",
-    "ts": "2026-03-21T07:42:17.492005+00:00"
   },
   "nebius/outstaff-toloka-data-platform": {
     "status": "done",
@@ -312,16 +292,6 @@
     "exit_code": 1,
     "pushed": true,
     "ts": "2026-03-21T13:19:32.244007+00:00"
-  },
-  "polotsky/Autoproof-hub.go": {
-    "status": "failed",
-    "error": "Command '['git', 'push', '--mirror', 'https://oauth2:glpat-xVbtOWFr1AZbd-yAdWKckm86MQp1OmQ0NTYyCw.01.120qaxmh7@gitlab.com/doubletapp/data-llm/partner-private-repos-delivery/polotsky/Autoproof-hub.go.git']' returned non-zero exit status 1.",
-    "ts": "2026-03-21T13:19:50.737487+00:00"
-  },
-  "kuzvesov/iq-ec": {
-    "status": "failed",
-    "error": "'utf-8' codec can't decode byte 0xe9 in position 6423: invalid continuation byte",
-    "ts": "2026-03-21T16:05:09.738920+00:00"
   },
   "polotsky/trendim-wedding": {
     "status": "done",
@@ -462,11 +432,6 @@
     "exit_code": 1,
     "pushed": true,
     "ts": "2026-03-21T20:05:54.787007+00:00"
-  },
-  "polotsky/fake-example": {
-    "status": "failed",
-    "error": "Command '['git', 'push', '--mirror', 'https://oauth2:glpat-xVbtOWFr1AZbd-yAdWKckm86MQp1OmQ0NTYyCw.01.120qaxmh7@gitlab.com/doubletapp/data-llm/partner-private-repos-delivery/polotsky/fake-example.git']' returned non-zero exit status 1.",
-    "ts": "2026-03-21T20:06:02.365890+00:00"
   },
   "polotsky/wedding": {
     "status": "done",
@@ -1049,11 +1014,6 @@
     "pushed": true,
     "ts": "2026-03-24T10:43:02.892173+00:00"
   },
-  "softmedialab/sml-mirror-SB-Innoprom2018": {
-    "status": "failed",
-    "error": "Command '['git', 'clone', '--no-single-branch', 'https://oauth2:glpat-xVbtOWFr1AZbd-yAdWKckm86MQp1OmQ0NTYyCw.01.120qaxmh7@gitlab.com/doubletapp/data-llm/partner-private-repos/softmedialab/sml-mirror-SB-Innoprom2018.git', '/private/tmp/repo-san-work/softmedialab/sml-mirror-SB-Innoprom2018/out/work']' returned non-zero exit status 128.",
-    "ts": "2026-03-24T10:43:03.585696+00:00"
-  },
   "softmedialab/sml-mirror-Knopka-Onboarding": {
     "status": "done",
     "bundle_sha256": "8208dce34ea787398d47c7d57755c6dfc6153e415b027032b36a7e510c7fc7cf",
@@ -1369,9 +1329,1334 @@
     "pushed": true,
     "ts": "2026-03-26T00:01:33.439433+00:00"
   },
-  "qw1nt/Qw1nt-z-girls.archero-like": {
-    "status": "failed",
-    "error": "git-filter-repo failed: fatal: not a git repository (or any of the parent directories): .git\nfatal: Command '['git', 'show-ref']' returned non-zero exit status 128.\n",
-    "ts": "2026-03-26T19:58:34.068444+00:00"
+  "kuzvesov/logistic-fe": {
+    "status": "done",
+    "bundle_sha256": "c5812d0ef2bfcf51f413af29ec18ae08b2fe2a2dc6be6be719bc84f95306a12f",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T11:25:07.210285+00:00"
+  },
+  "kuzvesov/kiosk-map": {
+    "status": "done",
+    "bundle_sha256": "afd1fb971a356b3143a4034693a1f30c8533b103878590d9d4b3cc71d74b6cb8",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T11:42:54.154212+00:00"
+  },
+  "kuzvesov/meld-mobile": {
+    "status": "done",
+    "bundle_sha256": "5d34536d2f088334da8bc5795c7401f93c9e54f857d6d845354c0df5ce3bcc69",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T11:43:01.299738+00:00"
+  },
+  "kuzvesov/idk-web-components": {
+    "status": "done",
+    "bundle_sha256": "fb31a3cc6b33f6846af4d5c4556e293a41a237498ca1735be3cbec40ddc63321",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T11:46:42.613795+00:00"
+  },
+  "kuzvesov/m-constructor-backend": {
+    "status": "done",
+    "bundle_sha256": "f83dd8f72df634cdec4ed9305b2a665f8125680e24ef37e961a74346a5639c4a",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T11:47:41.480462+00:00"
+  },
+  "kuzvesov/ilizarov-api-sailsj": {
+    "status": "done",
+    "bundle_sha256": "0318823b8e918d62f4e74a1bcda4a8561d04cde86e8e285618a2167aa38d4159",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T11:55:07.525382+00:00"
+  },
+  "kuzvesov/qr-cards-app": {
+    "status": "done",
+    "bundle_sha256": "39198c25670dd0c0bbcded8d8750cc1c0a501b13e2691e45f6d8729f8b94f461",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T12:02:59.609995+00:00"
+  },
+  "kuzvesov/kiosk-be": {
+    "status": "done",
+    "bundle_sha256": "23800b531105188a35d7ca5d085dc9e292864a46509a3a50868bd21feb8fd9bb",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T12:15:01.407545+00:00"
+  },
+  "kuzvesov/dafquest-api": {
+    "status": "done",
+    "bundle_sha256": "bd2bf17b0135c723366ca0c4e29ebdd9472e3563c9ef38842d07597f0e2505d3",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T12:24:34.348795+00:00"
+  },
+  "kuzvesov/promo": {
+    "status": "done",
+    "bundle_sha256": "e61690d548c19cdc800aab3fb87cc8f57be181ab954e505ab1823daa2a2f8c2c",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T12:28:24.850906+00:00"
+  },
+  "kuzvesov/m-cms-microservice": {
+    "status": "done",
+    "bundle_sha256": "278a820efe18a940b0bf201e04264dc696519b0bf7c72c8989b3371242262213",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T12:48:52.346157+00:00"
+  },
+  "kuzvesov/a-admin": {
+    "status": "done",
+    "bundle_sha256": "0a0deefdf1d3a04f0fb2f42a341e582fb17186f90fcd59d809402a0552f95a55",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T12:51:27.981594+00:00"
+  },
+  "kuzvesov/umoz-app": {
+    "status": "done",
+    "bundle_sha256": "6e56ccf23de4157fd820b91b3d7647ecfd96ae2fd488caf68dce32561e70fb28",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T12:53:31.375848+00:00"
+  },
+  "kuzvesov/i-butter-mobile-app": {
+    "status": "done",
+    "bundle_sha256": "a478f78193950ed300e636b7be26ae4f8e02b0e942585471e23d80907182d4ab",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T12:59:23.422758+00:00"
+  },
+  "kuzvesov/m-main-fe": {
+    "status": "done",
+    "bundle_sha256": "69a6b2b16c6246db2abc1195970762889b5ba3d00c523e8631912a237daec75b",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T13:02:52.547579+00:00"
+  },
+  "kuzvesov/mos-metro-backend": {
+    "status": "done",
+    "bundle_sha256": "46fb58818fbf8e9f007f6d195326397044f9e5ebe615593e4bc2fdbb4b58fa3d",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T13:06:18.873204+00:00"
+  },
+  "kuzvesov/kiosk-player": {
+    "status": "done",
+    "bundle_sha256": "d8eaa4892e418403c3efe69b9e4dd459f8ab222f64f5a98c3fee60c2b83f40a1",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T13:11:07.739894+00:00"
+  },
+  "kuzvesov/m-sub-fe": {
+    "status": "done",
+    "bundle_sha256": "8b49c9b2c722072520c7165ed629ae5b45b9c11661c6aeed13032584f9a24b23",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T13:12:45.055343+00:00"
+  },
+  "kuzvesov/12shot-admin-client": {
+    "status": "done",
+    "bundle_sha256": "ef6d3cd9d35e56c37d9c386b68b09e229bca12f7c954a8c91771d87c25fefc22",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T13:25:44.514137+00:00"
+  },
+  "kuzvesov/m-project-microservice": {
+    "status": "done",
+    "bundle_sha256": "08a79101d4586350c742d85fcfbff8e88f1137a06e04ddaea07fcf70b964510a",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T13:39:56.607617+00:00"
+  },
+  "kuzvesov/a-mobile": {
+    "status": "done",
+    "bundle_sha256": "bba6502ed44033d1cf0bb80d5f90a3062a6950d6e7b593e92321e90cff4a26a2",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T14:05:49.547230+00:00"
+  },
+  "kuzvesov/logger": {
+    "status": "done",
+    "bundle_sha256": "5c8aa675bbaf896abab931023bea1962a5715c05929fa614dbb917c77aae48f3",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T14:07:27.158754+00:00"
+  },
+  "kuzvesov/smart-admin": {
+    "status": "done",
+    "bundle_sha256": "791a53617e8e51a1099e31d23a83347ff9ef2d1ec83ead5309ae2ab4bf2af173",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T14:32:51.732187+00:00"
+  },
+  "kuzvesov/map-fe": {
+    "status": "done",
+    "bundle_sha256": "4ad4e9e1ba6050d162568ed0b1d8a4a7d14feb0bdc114c981a7f8099420c95a4",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T14:36:01.134728+00:00"
+  },
+  "kuzvesov/12shot-api": {
+    "status": "done",
+    "bundle_sha256": "a21f3384557097aa308438c10a950b6f682f30e4e5807b6a3cddb4ab68113a6c",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T15:03:06.324962+00:00"
+  },
+  "kuzvesov/m-shop-microservice": {
+    "status": "done",
+    "bundle_sha256": "6098fb5c547c4df9191e85dcf5deaa020be089daf902bd1b5b742c60e587e6c5",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T15:23:15.405619+00:00"
+  },
+  "kuzvesov/appenglish2-alt": {
+    "status": "done",
+    "bundle_sha256": "0ef545e357483492dea8fa07f6c29b095c7516cb468afd4205368ac986ce52ee",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T15:27:11.006717+00:00"
+  },
+  "musikhin/talk_together_bot-main": {
+    "status": "done",
+    "bundle_sha256": "3bd2662d4476d904cfca9c09532db31c7eb5546a3fe21eabef6f3e76fbf9ff97",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-19T15:28:09.577610+00:00"
+  },
+  "kuzvesov/fromtheraw": {
+    "status": "done",
+    "bundle_sha256": "4f537418264c58e7c394a4bfb216b15dbed592dec18a921c3bab5bff50921477",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T06:23:54.744940+00:00"
+  },
+  "nebius/outstaff-toloka-data-platform": {
+    "status": "done",
+    "bundle_sha256": "d963441c7e5e72cb1b1c68ad4ce6bf4665c94f8c1434776d9f830b0e9c27bd1d",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T11:57:38.303944+00:00"
+  },
+  "nebius/hq-left-hr-automations": {
+    "status": "done",
+    "bundle_sha256": "f530de816bcdb8f25950df30072fa41117f590ec2f959aa0c21ea37973256e45",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T12:06:16.496296+00:00"
+  },
+  "nikbauer/hhhh": {
+    "status": "done",
+    "bundle_sha256": "23b742f150e5312251679c6f329f3f09daa13ffa89bfbd8d03d979a695769ce1",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T12:07:20.257952+00:00"
+  },
+  "kuzvesov/mtt": {
+    "status": "done",
+    "bundle_sha256": "257d932049673dd00ed692ab0f60fc7730819b89e413a9c661ce6cfddfe69925",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T12:07:21.364405+00:00"
+  },
+  "nikbauer/tbank_front": {
+    "status": "done",
+    "bundle_sha256": "55784e774a53a1f0c74548766d51bd4715faee611b52f9d93ef571574b820ca6",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T12:10:10.857722+00:00"
+  },
+  "nikbauer/teashop_back": {
+    "status": "done",
+    "bundle_sha256": "a750e55be94aefca7a0800d02993a8f377ebf801b9b524409e3ba5d2228b88eb",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T12:10:17.621524+00:00"
+  },
+  "nikbauer/sea_detection_backend": {
+    "status": "done",
+    "bundle_sha256": "3816e7e7dc922652012346aef005c1a3be74117b1e72b95977eb216a69537a8f",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T12:13:13.947871+00:00"
+  },
+  "nikbauer/unilib_library_front": {
+    "status": "done",
+    "bundle_sha256": "3d6cf77d1367270c76234b425b4597b3d75260d908f7d3ffa85767940fa0bc52",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T12:16:02.914630+00:00"
+  },
+  "paschenko/SMYT": {
+    "status": "done",
+    "bundle_sha256": "486623e6a26682e946de8bca79518381f51c2cf059219fd9a43e6fb647614971",
+    "exit_code": 0,
+    "pushed": true,
+    "ts": "2026-03-21T12:16:41.304139+00:00"
+  },
+  "paschenko/supervisor_status": {
+    "status": "done",
+    "bundle_sha256": "9245ae7b6893c85e3de641f24bf6a9cf699754e4a3c3ea2c1fc136ab8dc4ac8e",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T12:16:59.120325+00:00"
+  },
+  "paschenko/jurgorod": {
+    "status": "done",
+    "bundle_sha256": "ad74f469ae3e7a21962290c96276ec7feb2cfee91501c0e4a8dbafb70f3c4edb",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T12:29:37.728323+00:00"
+  },
+  "polotsky/trendim-grails-atlassian-ui": {
+    "status": "done",
+    "bundle_sha256": "c3cad6c9511d310f4988e21b7de62e24fce0a29202a844c97dea02247a924238",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T13:11:57.858978+00:00"
+  },
+  "polotsky/trendim-kontrolit-fork": {
+    "status": "done",
+    "bundle_sha256": "5f6c42605bb4f823fa30063709c8cdd3803920b66267060739977b543405669e",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T13:19:32.244007+00:00"
+  },
+  "polotsky/trendim-wedding": {
+    "status": "done",
+    "bundle_sha256": "1a7894dd25f01c8110741e72fb4e44dbba9371b9e74a811828262a88a5767bdc",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T16:27:29.680239+00:00"
+  },
+  "polotsky/Autoproof-treelance": {
+    "status": "done",
+    "bundle_sha256": "956a50edf6ffc0a4e6a6d0da91d1aa17238a12249ba1f81a3301fd221ba521df",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T16:30:55.521288+00:00"
+  },
+  "polotsky/Autoproof-vigilant-happiness": {
+    "status": "done",
+    "bundle_sha256": "cfa21d897ea3bff7758a4cf297f350469379c16c474c7fe96743016cee828373",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T16:32:16.817488+00:00"
+  },
+  "polotsky/Autoproof-hub-vigilant-happiness": {
+    "status": "done",
+    "bundle_sha256": "27686f95f4953bd01e54cf7f6b9d332b1084c2f47a094ffa4c910bece5bf6a7e",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T16:51:07.724470+00:00"
+  },
+  "polotsky/deprecated-pinsteps-white-label": {
+    "status": "done",
+    "bundle_sha256": "a754a89f720f47e83c87ceb084d3ebf8e8f5472e1412e8b439a675254fde3c23",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T17:10:26.218941+00:00"
+  },
+  "polotsky/TrendimIlia-mxm-admin": {
+    "status": "done",
+    "bundle_sha256": "dcb1c10e14ab2ab220b8a87907f15f5000e14789618bd4e2651c38c7daa58204",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T17:21:52.592148+00:00"
+  },
+  "polotsky/kontrolit-fork": {
+    "status": "done",
+    "bundle_sha256": "5b4c3bc0b578818bdfc4e609644d56e0126ef914cbf828a8151851b2aafa3895",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T17:28:34.836023+00:00"
+  },
+  "polotsky/task-you-mobile": {
+    "status": "done",
+    "bundle_sha256": "9bb3a9492b793c65450c02d422a9a0c0037a727f3d6a4ed165af2317f0827c44",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T17:39:12.877528+00:00"
+  },
+  "polotsky/deprecated-pinsteps-white-label-constructor": {
+    "status": "done",
+    "bundle_sha256": "e7d58921689e3bca7a5e47088d9cc12b9b0542120fee41eae0b14f60f781e369",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T18:00:09.344887+00:00"
+  },
+  "polotsky/autoproof-backend": {
+    "status": "done",
+    "bundle_sha256": "21af630438f2351d88fa12fb7e4ad82b8891dc0db590cd4d7ebb8c2555725d87",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T18:20:28.801998+00:00"
+  },
+  "polotsky/grails-atlassian-ui": {
+    "status": "done",
+    "bundle_sha256": "f68bf417114e4298e97eb98297c75399c7bca3ab1d57fa22913970f60cd79264",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T18:26:32.618705+00:00"
+  },
+  "polotsky/hub-vigilant-happiness": {
+    "status": "done",
+    "bundle_sha256": "e6b0f4f14468014d806a76b6687fcc3282d528a5e429a151d1101e9fa4df7573",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T18:44:44.207874+00:00"
+  },
+  "polotsky/vigilant-happiness": {
+    "status": "done",
+    "bundle_sha256": "745ed07231225a60c224665a05637b7724a032e362b2ee43db5fa1cc2c5b23a8",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T18:46:17.191025+00:00"
+  },
+  "polotsky/hub": {
+    "status": "done",
+    "bundle_sha256": "c7ba28e28e1a3478d5227cf91c5006a6fabc8a967925131c1508b4eb59c5a965",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T18:56:45.100422+00:00"
+  },
+  "polotsky/contract": {
+    "status": "done",
+    "bundle_sha256": "5f39417366cf10604500a1dab890bdbc38423da50c4880f60bc20723aa17e059",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T19:06:09.128556+00:00"
+  },
+  "polotsky/badfest-invite-telegram-bot": {
+    "status": "done",
+    "bundle_sha256": "59909f32719c249ba2e7f6d6b5b7f750536cca0681f5b9edbcc264db235116e9",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T19:12:24.829453+00:00"
+  },
+  "polotsky/mxm-admin": {
+    "status": "done",
+    "bundle_sha256": "ac8c97412fe1711853fb965781e1a90ed233bccc2860769c6bf4df7c909ace5b",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T19:38:41.196333+00:00"
+  },
+  "polotsky/telegram-mini-app-front": {
+    "status": "done",
+    "bundle_sha256": "d2a858c37efa56444b31d6994c79114e5b26092e491be3fd5f7ea1728cdf5efc",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T19:54:41.105588+00:00"
+  },
+  "polotsky/tinder-zmh": {
+    "status": "done",
+    "bundle_sha256": "99a1d135570e4947f868c41b7e83f5d49f4a4c8f2b27136f50b607ce5bdde311",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T20:03:03.172641+00:00"
+  },
+  "polotsky/channel-processing": {
+    "status": "done",
+    "bundle_sha256": "415f518f38933aeefeb9efebdd12ff48f971930fdb587bb2d9c77221f453d074",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T20:05:54.787007+00:00"
+  },
+  "polotsky/wedding": {
+    "status": "done",
+    "bundle_sha256": "4fe41b1f554e1f8a829f98124f2e024768dd02cbbcefc495ca9b6146ee877076",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T20:30:17.168013+00:00"
+  },
+  "ponomarev/iliapnmrv-mo4.mobile": {
+    "status": "done",
+    "bundle_sha256": "44f27bd290bd8eb59da4277f1a5ecb8a6ab61c0f9edb839bc644e4f426c44842",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-21T20:38:19.479735+00:00"
+  },
+  "polotsky/treelance": {
+    "status": "done",
+    "bundle_sha256": "6b6961216edc802b0c44c2593c986250af288ecb0714c9aa9b90e4361f105f65",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-22T20:05:09.787247+00:00"
+  },
+  "raigfp/vintergatan": {
+    "status": "done",
+    "bundle_sha256": "9ee12fc21570d0ec887f6fee42ea6bcb939b3beae3b905fa562aaf85cf1bcb9c",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-22T20:07:19.181278+00:00"
+  },
+  "remsha/portfolio-ai-backend": {
+    "status": "done",
+    "bundle_sha256": "",
+    "exit_code": 0,
+    "pushed": false,
+    "ts": "2026-03-22T20:07:22.668550+00:00"
+  },
+  "raigfp/savebravedave": {
+    "status": "done",
+    "bundle_sha256": "2d225e5df565890a3536b9be72f3c27a2a35d926cba99452d340e04da4d21d26",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-22T21:39:48.339800+00:00"
+  },
+  "remsha/chatbot-backend": {
+    "status": "done",
+    "bundle_sha256": "",
+    "exit_code": 0,
+    "pushed": false,
+    "ts": "2026-03-22T21:39:51.854470+00:00"
+  },
+  "remsha/cryptoratt-backend": {
+    "status": "done",
+    "bundle_sha256": "2fb0c92fc6da63a70e8aaee427b8cf6a2cacc17e30bd5a343649d43813de6c18",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T00:55:56.053815+00:00"
+  },
+  "remsha/gymauto-backend": {
+    "status": "done",
+    "bundle_sha256": "",
+    "exit_code": 0,
+    "pushed": false,
+    "ts": "2026-03-23T00:55:59.380734+00:00"
+  },
+  "remsha/c-accountants": {
+    "status": "done",
+    "bundle_sha256": "4e88e0a92eda36bcc437f6b81b97c00d5b9004db20fa627c315be7465909de83",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T01:17:48.373836+00:00"
+  },
+  "kuzvesov/lodki-motory": {
+    "status": "done",
+    "bundle_sha256": "5e557e50c2eef9304b2f0760cbe476f9a9abdc77407164a677df68a63b49c8b3",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T01:44:35.208957+00:00"
+  },
+  "remsha/pay-aggregator": {
+    "status": "done",
+    "bundle_sha256": "497b7668f99e0c10bb2ccb9d9c6ef028ee8b9952239afe85209546da178f8ef2",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T06:44:53.406067+00:00"
+  },
+  "remsha/crm-calendar-backend": {
+    "status": "done",
+    "bundle_sha256": "",
+    "exit_code": 0,
+    "pushed": false,
+    "ts": "2026-03-23T06:44:56.943867+00:00"
+  },
+  "remsha/crm-people-backend": {
+    "status": "done",
+    "bundle_sha256": "",
+    "exit_code": 0,
+    "pushed": false,
+    "ts": "2026-03-23T06:45:01.250290+00:00"
+  },
+  "remsha/ai-backend": {
+    "status": "done",
+    "bundle_sha256": "ee19da672a887fc895337f88d38a8fc2d4f3c33cc3ca583925cd191015873a2e",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T07:29:37.055981+00:00"
+  },
+  "remsha/crm-auth-backend": {
+    "status": "done",
+    "bundle_sha256": "",
+    "exit_code": 0,
+    "pushed": false,
+    "ts": "2026-03-23T07:29:40.979905+00:00"
+  },
+  "remsha/fastapi-rest-framework": {
+    "status": "done",
+    "bundle_sha256": "",
+    "exit_code": 0,
+    "pushed": false,
+    "ts": "2026-03-23T07:29:45.193654+00:00"
+  },
+  "remsha/sqlalchemy-tools": {
+    "status": "done",
+    "bundle_sha256": "a9895561477d763c52aef668c4181dea770a0df6791c04b8544e6b370f1769bd",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T07:34:55.808548+00:00"
+  },
+  "remsha/currencies": {
+    "status": "done",
+    "bundle_sha256": "38522ddd634c2b4a5106b0165376998358c4e01c2c54ef2c46bd418e78fe956a",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T07:48:33.472228+00:00"
+  },
+  "remsha/check-access": {
+    "status": "done",
+    "bundle_sha256": "8a3c3d3b81b3c14fe329478c87feb74913f746e3cf4d6e7ca71b2bc22d111b76",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T07:56:25.317246+00:00"
+  },
+  "remsha/page-configurator": {
+    "status": "done",
+    "bundle_sha256": "4fcf603d92211fba4dda8d753b84c18e2b654459d66956f7d76010b5b2fb5669",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T07:57:44.771524+00:00"
+  },
+  "remsha/b2b-backoffice-admin-panels": {
+    "status": "done",
+    "bundle_sha256": "7f6d4f9630938bb694439ad3c86a35aa14879f2d8731ce182b73cf79f138c46d",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T11:46:08.034009+00:00"
+  },
+  "remsha/ansible": {
+    "status": "done",
+    "bundle_sha256": "2ec45d94912543a790a923e90aed238bcd479ccbddd4957f1be14aa8352c2e82",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T14:43:13.067098+00:00"
+  },
+  "remsha/argocd-projects": {
+    "status": "done",
+    "bundle_sha256": "4d2a90351356cf9e7402ac7e56381914bcd4d4719fcda172ae9caec5f418ee42",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T16:40:44.884926+00:00"
+  },
+  "remsha/oapi-codegen": {
+    "status": "done",
+    "bundle_sha256": "a8ca40de41e7e0ae7c269f79c00810c9c236f10a4e666c92e52ea4f52c4996b6",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T17:33:17.150156+00:00"
+  },
+  "remsha/invocations": {
+    "status": "done",
+    "bundle_sha256": "",
+    "exit_code": 0,
+    "pushed": false,
+    "ts": "2026-03-23T17:33:20.947495+00:00"
+  },
+  "remsha/accountants": {
+    "status": "done",
+    "bundle_sha256": "f360fb0cffd00f2b842aa32046e909597a1b216027ba4de0e61a2999ab27d4a3",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T17:41:54.938520+00:00"
+  },
+  "remsha/sage-integration": {
+    "status": "done",
+    "bundle_sha256": "1f25143c1fb2faf359fdb60f5d30d44d5a363c5017acaaa6fe06041284115854",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T17:45:44.825411+00:00"
+  },
+  "remsha/tax-admin": {
+    "status": "done",
+    "bundle_sha256": "44f8c6ec678dfe84690ba6af9a367e3c79917e228ef2e72c1e6932db294480d3",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T19:12:34.160271+00:00"
+  },
+  "remsha/invitation": {
+    "status": "done",
+    "bundle_sha256": "a449c5a6b795cf51b60d8cf6ca18054a4bf11cc387f352c77570f8b6fe814117",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T19:14:10.817360+00:00"
+  },
+  "remsha/phxii-backend": {
+    "status": "done",
+    "bundle_sha256": "2d99ace8906e8aff4e57f47e2f026ebf6b54f6df80c28d6a4554ba4469764a7a",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T19:36:54.928703+00:00"
+  },
+  "remsha/accounts": {
+    "status": "done",
+    "bundle_sha256": "b9e35d0f80c6cef30c88462fae8c49200eed803370c3f449f294c50beaa0911d",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T19:58:11.824737+00:00"
+  },
+  "remsha/summit-backend": {
+    "status": "done",
+    "bundle_sha256": "10f9126c08ab7edac44926331c1258ceae305c8033876fdb52ebd79284eeb412",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T20:21:29.415601+00:00"
+  },
+  "remsha/crm-projects-backend": {
+    "status": "done",
+    "bundle_sha256": "",
+    "exit_code": 0,
+    "pushed": false,
+    "ts": "2026-03-23T20:21:32.928420+00:00"
+  },
+  "remsha/python-boilerplate-django": {
+    "status": "done",
+    "bundle_sha256": "563b4280cde3d3e2dd726c2077b3c3c7496adbdf55b188e3d2897aeb8b35e696",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T20:40:18.878108+00:00"
+  },
+  "remsha/ws-accountants": {
+    "status": "done",
+    "bundle_sha256": "c9e9512e494b1acc9e4be303e43519f00a7ecee7efb432a132bc0a0cc15e6404",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T20:49:33.989816+00:00"
+  },
+  "remsha/user-access": {
+    "status": "done",
+    "bundle_sha256": "0bafd5498db4ab2d2fcb05caf536ea0a6202b301feaea7230fa2918a5425a9d2",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T20:59:30.003638+00:00"
+  },
+  "remsha/db-sync": {
+    "status": "done",
+    "bundle_sha256": "be1ab320a43f41ad1725995020564618e7cc3618735284d2447fb7b3b3f70261",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T21:01:22.069946+00:00"
+  },
+  "remsha/crm-notify-backend": {
+    "status": "done",
+    "bundle_sha256": "80e1ced2743540658306142661e7bb533d90ff3626f122e47120004b6c21fd7d",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T21:07:43.013841+00:00"
+  },
+  "remsha/crm-jira-backend": {
+    "status": "done",
+    "bundle_sha256": "c5d8db52851295fa13f7eed0d91dabccc9e4378b381ae9baf31a6ead0d087a5a",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T21:08:22.339710+00:00"
+  },
+  "remsha/qaqn-backend": {
+    "status": "done",
+    "bundle_sha256": "d873d016bc7d1cae17ebdd21d0c1668b11448aed225afb3cab7023e4af15faa7",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T21:11:53.372002+00:00"
+  },
+  "remsha/python-course-tracker-backend": {
+    "status": "done",
+    "bundle_sha256": "d1b200631b4b3a4e74a31071d6fe0334ff2092bc2de3e977da112a16dcfc88b8",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T21:23:16.209864+00:00"
+  },
+  "remsha/blacklist": {
+    "status": "done",
+    "bundle_sha256": "444c8158b623a2196118607148965cdf76231a48040d5179e41a632cea93d026",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T21:36:23.736123+00:00"
+  },
+  "remsha/admin": {
+    "status": "done",
+    "bundle_sha256": "84b76f7bd2589e86ab9a96507ac9b996a94df9faa9e789ce8fa2b34ccabeea30",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T21:37:26.111863+00:00"
+  },
+  "remsha/crm-jira-lambda": {
+    "status": "done",
+    "bundle_sha256": "9cd773eea73d4a34f921b805520d8582ad71c16b740d83c2bf0e463ed2af1574",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T21:40:16.606011+00:00"
+  },
+  "remsha/FFGPT": {
+    "status": "done",
+    "bundle_sha256": "928c9cae8f5cf607eedd34fb22d17d2988e1f15bcb229256b7797675e455cac6",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T21:41:24.918847+00:00"
+  },
+  "remsha/ids-libraries": {
+    "status": "done",
+    "bundle_sha256": "52e9442756e41ab6c3907cd472e730ceb495b238c71cbca702fba3f1ff566e08",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T21:46:53.814994+00:00"
+  },
+  "remsha/s3-tools": {
+    "status": "done",
+    "bundle_sha256": "3468b624d328f9d3a01adb22669ebf628aa2df1c3ed3a4b117c502ee1f213a1c",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T21:49:47.069045+00:00"
+  },
+  "remsha/crm-jira-lambda-function": {
+    "status": "done",
+    "bundle_sha256": "913dcd1b2c64909761df596827af700bf428eb98f28dabc69f9cd06a9f280de7",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T21:55:34.516349+00:00"
+  },
+  "remsha/pay-request": {
+    "status": "done",
+    "bundle_sha256": "ce858b90382d353209e81d5e9bcded3eb76b21a5cb6cd1d88907d62fcb2e6e76",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T21:57:41.999950+00:00"
+  },
+  "remsha/deploy-ci": {
+    "status": "done",
+    "bundle_sha256": "c2c63a9b5545651c3c94a0d37443401492dc2c0934a308631bc0dee0310b810d",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T21:58:58.184164+00:00"
+  },
+  "sargadze/firetv": {
+    "status": "done",
+    "bundle_sha256": "bd4e3431c68cc4f30d1eca554143195ce57cd49de7cdb462f3cc3227841fe69e",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-23T22:50:08.099358+00:00"
+  },
+  "sargadze/android-waterbear": {
+    "status": "done",
+    "bundle_sha256": "cb1d4cf269cd94dcad51688a3356172ec12cd285039a87da2f9f7609049ef771",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T01:17:35.807224+00:00"
+  },
+  "sargadze/android2": {
+    "status": "done",
+    "bundle_sha256": "d768098924ef532bbcd1f27bc882b1137c374a4839c419ce34f3b1c7370b59cb",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T01:25:40.583367+00:00"
+  },
+  "sargadze/android-sinclair-news": {
+    "status": "done",
+    "bundle_sha256": "0f4d26c2a439e79890f46329496251e01b2538bf0db39cbb7f8d7720a6ef6f4f",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T01:44:31.996501+00:00"
+  },
+  "sargadze/operator-android": {
+    "status": "done",
+    "bundle_sha256": "3c0a00e9cce051715c03c43e7957d054c621a29bf4b2e16ddfa5f78ddd2f4341",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T02:47:32.045094+00:00"
+  },
+  "sargadze/android-virgin-media-player": {
+    "status": "done",
+    "bundle_sha256": "0ecd6c949368540303394873acc64d64ed03fbceeb25753fde54337dd022a00c",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T02:49:16.365390+00:00"
+  },
+  "sargadze/MyApplication33": {
+    "status": "done",
+    "bundle_sha256": "7dff56ab243da1ae54ecdfaa986cfa2a03169a7fedc7b83b95a5e151f16462c3",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T03:06:14.112280+00:00"
+  },
+  "sargadze/android-qurate-marketplace": {
+    "status": "done",
+    "bundle_sha256": "28a7c6bf5c5069ae96c4e34fe9daccbfd64458f63059ff26fd5622092afe0deb",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T03:23:30.081104+00:00"
+  },
+  "sargadze/github": {
+    "status": "done",
+    "bundle_sha256": "8442d7548c6ea80b364e96fffa8b87b2abf670c53df2c6017031bc98d70ec94a",
+    "exit_code": 0,
+    "pushed": true,
+    "ts": "2026-03-24T03:23:38.735445+00:00"
+  },
+  "sargadze/android-ifi-player": {
+    "status": "done",
+    "bundle_sha256": "d43936724e6523bbfada2e5f2b69010fc5141d5643c929bd314c6a3da5d5c4f0",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T05:07:31.019279+00:00"
+  },
+  "sargadze/android-ui": {
+    "status": "done",
+    "bundle_sha256": "a1f3e149b407de89e778a09ba0838e2f101ed3c855460cd0241aa5a4ab848194",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T05:09:06.707273+00:00"
+  },
+  "sargadze/android-videoelephant": {
+    "status": "done",
+    "bundle_sha256": "bc9ef275a7dc5978130374e5e7eaac3d02221911e50bd1ecb0d40a355c177cb3",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T08:09:00.906038+00:00"
+  },
+  "sargadze/android": {
+    "status": "done",
+    "bundle_sha256": "6331d13712c19032157bf9f09eca7250c420cd5bfbd910d7d2936d1be0d4d120",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T08:40:25.455255+00:00"
+  },
+  "sargadze/android-tbd": {
+    "status": "done",
+    "bundle_sha256": "8c518a0eecac21eadd772c21d5e3b7b7300c7508d547dfd97247d514a0acf453",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T08:50:48.642223+00:00"
+  },
+  "sargadze/MyApplication3": {
+    "status": "done",
+    "bundle_sha256": "5acefe36c5aa1c3cbb17af153aa705718548619fff1ec09287fc7ec5f58c1638",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T08:51:18.034198+00:00"
+  },
+  "sargadze/googleads-ima-android": {
+    "status": "done",
+    "bundle_sha256": "5ec6afd9aa56145bb65fcbd77167ebf91143bf644a9196ad0950e00c9cdc562b",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T08:56:40.173747+00:00"
+  },
+  "sargadze/MyApplication5": {
+    "status": "done",
+    "bundle_sha256": "8a2895c3c972763fdb6a3514abdbd5b915df7f4ec1ad0c9b2ad1dfbde06975ef",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T08:57:18.449521+00:00"
+  },
+  "sargadze/MyApplication": {
+    "status": "done",
+    "bundle_sha256": "8d2c7084460b9f1625b9d028d16cf7222f3ee97b3b90e2f599d8da868ff77ca2",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T08:57:47.440630+00:00"
+  },
+  "sargadze/android-qvc": {
+    "status": "done",
+    "bundle_sha256": "d3943ad1fe58e91860ebc2aaadc754692bace7fc49da90dc06c84525beaba660",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T09:15:37.120421+00:00"
+  },
+  "sargadze/MyApplication2": {
+    "status": "done",
+    "bundle_sha256": "4c53b74ec2b38aa4c4d6b383826fa0e11af7300fb1ad63e73045ec7333223058",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T09:16:03.425511+00:00"
+  },
+  "sargadze/Signing": {
+    "status": "done",
+    "bundle_sha256": "208d45fda85c73ef01f32c01a057d2c5040b3d3e88f0392512d2d4ff867a85f9",
+    "exit_code": 0,
+    "pushed": true,
+    "ts": "2026-03-24T09:16:13.459016+00:00"
+  },
+  "sargadze/MyApplication4": {
+    "status": "done",
+    "bundle_sha256": "68680930cd0c47795b3c0d0c27d71b6dfface66b02af1f41a179bf92f50e40f5",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T09:16:45.517177+00:00"
+  },
+  "sargadze/snippets-android": {
+    "status": "done",
+    "bundle_sha256": "2f41649a44f312db933a1a669e90b8b64abdab1850aeb0a0837eaccc6a5a0753",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T09:26:48.957487+00:00"
+  },
+  "softmedialab/sml-mirror-IKEA": {
+    "status": "done",
+    "bundle_sha256": "c9df2abb8e47f65227065ff2a7f230cda35ced1f0ffe2250ca221c04512a4d7d",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T09:27:36.518940+00:00"
+  },
+  "softmedialab/sml-mirror-TradingTerminal": {
+    "status": "done",
+    "bundle_sha256": "095ab285d19b71cdc7fd58e8d9b4d1b8a4e58beb98b9e692d31a42b1e83fa90c",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T09:47:02.105758+00:00"
+  },
+  "softmedialab/sml-mirror-WasteHub-Likhachev": {
+    "status": "done",
+    "bundle_sha256": "2f2172b774676207ad4cd05d9421aed23eb90aec85d9e2b61fe6af7dbdac11d8",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T09:58:53.824511+00:00"
+  },
+  "softmedialab/sml-mirror-NLMK.ReplicationASAP": {
+    "status": "done",
+    "bundle_sha256": "0a1bdfbf85194dc09f95239c5189693a1ee1e125df52702a1d278f7e8bbce4e2",
+    "exit_code": 0,
+    "pushed": true,
+    "ts": "2026-03-24T09:59:02.181306+00:00"
+  },
+  "softmedialab/sml-mirror-CoreView": {
+    "status": "done",
+    "bundle_sha256": "4e0b3c034dc21b8bca20fa42a556e1c4b64781ace7cd5823568ec41b9006a6a1",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T10:07:38.387599+00:00"
+  },
+  "softmedialab/sml-mirror2-DropBop": {
+    "status": "done",
+    "bundle_sha256": "aa94070a9d2d6571ca9199103c6d6e625b829e1ebe0a3ea7ea4407786275b1b7",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T10:12:17.552160+00:00"
+  },
+  "softmedialab/sml-mirror-WasteHub-daitonaaa": {
+    "status": "done",
+    "bundle_sha256": "468bc2bd25a7930b5b75249dd7a06b42c39f4b2238caff99b16c44e435d67039",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T10:29:55.874281+00:00"
+  },
+  "softmedialab/sml-mirror-24feb": {
+    "status": "done",
+    "bundle_sha256": "c1bd4c2c1be4bc20fc63b0e6b3604aae529351cb2f5374b33fb5a2397fd6e10c",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T10:30:38.534823+00:00"
+  },
+  "softmedialab/sml-mirror-jsonpath": {
+    "status": "done",
+    "bundle_sha256": "4225021688f00eb407888b7e463eb2d44bea2f520489c4c28a72b69baf3877cf",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T10:43:02.892173+00:00"
+  },
+  "softmedialab/sml-mirror-Knopka-Onboarding": {
+    "status": "done",
+    "bundle_sha256": "8208dce34ea787398d47c7d57755c6dfc6153e415b027032b36a7e510c7fc7cf",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T11:02:57.123267+00:00"
+  },
+  "softmedialab/sml-mirror-cushion": {
+    "status": "done",
+    "bundle_sha256": "393abbdc372966fe0644c2e0239f2ca07c3249e08459fed241c3cbe3c06031b5",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T11:13:48.161997+00:00"
+  },
+  "softmedialab/sml-mirror2-Brusnika.Exchange.PA": {
+    "status": "done",
+    "bundle_sha256": "9f87dcd71a6ed856be853d70fcc1a40c39d45410b477f35e9a64c2987c595a2c",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T11:18:49.429304+00:00"
+  },
+  "softmedialab/sml-mirror-FFMS-Client": {
+    "status": "done",
+    "bundle_sha256": "f43b8bb6a0d820760cf10fb80c5330a4b3054102f2b19dd2df0a5290ffc8a641",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T11:21:30.076723+00:00"
+  },
+  "softmedialab/sml-mirror-GoldenFace": {
+    "status": "done",
+    "bundle_sha256": "9fd005956a9cf81174333043ea7eeb1540cbd455535a36c904651d453f5b477d",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T11:23:49.018804+00:00"
+  },
+  "remsha/backend": {
+    "status": "done",
+    "bundle_sha256": "157f9189f72230e368b157b33dc3e2627b8c865c69aaab49ca55bd1becd6d70f",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T11:38:21.865931+00:00"
+  },
+  "softmedialab/sml-mirror-cushion-webapp-ui-origin": {
+    "status": "done",
+    "bundle_sha256": "a2f09f7f3788f0e77a222527c110d0fe4f0452cc060695befb4a7189905132ec",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T11:38:41.252163+00:00"
+  },
+  "softmedialab/sml-mirror2-jira-integration": {
+    "status": "done",
+    "bundle_sha256": "aadb89622dcad9472ed5086b9e2b4a8fec8fb2fd49c8b55c5ed0bb85dc058d7d",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T11:39:50.969357+00:00"
+  },
+  "softmedialab/sml-mirror-ts-generate-validator": {
+    "status": "done",
+    "bundle_sha256": "139b14ed38424a5a1f147d8a51f7f621c5dafa622a4581aa87f483cc39e72bbb",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T11:42:52.832086+00:00"
+  },
+  "softmedialab/sml-mirror-ts-structure-parser": {
+    "status": "done",
+    "bundle_sha256": "b293ebe914848193fcbfbc267f4d182d5c09ee64be64c5170a542d13897ce20e",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T11:43:29.588182+00:00"
+  },
+  "softmedialab/sml-mirror-materialui-table": {
+    "status": "done",
+    "bundle_sha256": "ad6d6c7ffc74d53debd00ecd47cc0d7540b14d3fb422f17510b4f7c80bb54a3b",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T11:50:51.570899+00:00"
+  },
+  "softmedialab/sml-mirror-ExbicoBitrixGate": {
+    "status": "done",
+    "bundle_sha256": "c38208909fb87a2917bc15e75dd0a4e205fa33b79a80844bfb0796d51cc60c79",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T11:54:56.606687+00:00"
+  },
+  "softmedialab/sml-mirror-AbatapAndroid": {
+    "status": "done",
+    "bundle_sha256": "6b513e6275a800f9bbd6a1b3d2f2b28847975a1f219de06dfe6d80e212da178d",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T12:10:48.652103+00:00"
+  },
+  "softmedialab/sml-mirror-AbatapServer": {
+    "status": "done",
+    "bundle_sha256": "3e6c7fb1f24630773c723f096448f9cb11ebe41e21b24ffe49990c2e4b9c02b2",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T12:31:15.295970+00:00"
+  },
+  "softmedialab/sml-mirror2-Kontur.Class": {
+    "status": "done",
+    "bundle_sha256": "c91c59c888512aa4266f7aba6cdb208f505dbfc50779a4319780a46d840df446",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T13:52:40.009580+00:00"
+  },
+  "softmedialab/sml-mirror-GoogleAnalyticsGate": {
+    "status": "done",
+    "bundle_sha256": "299e7586e9dd6f2eaeed0e9ef0f8c20ca022a54402d087b667ab7a36b8709d85",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T13:53:06.310480+00:00"
+  },
+  "softmedialab/sml-mirror-SML-Education": {
+    "status": "done",
+    "bundle_sha256": "455e8f55fb6e4bc42d3c91d33a025e50ac46cad25d2b4614979f5939fefc1206",
+    "exit_code": 0,
+    "pushed": true,
+    "ts": "2026-03-24T13:53:14.501635+00:00"
+  },
+  "softmedialab/sml-mirror-DispatchTracker": {
+    "status": "done",
+    "bundle_sha256": "7b6dc836b8f6faf116b9e347f43b378c5a62952f40936d6642ab515ac268223d",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T15:49:32.002619+00:00"
+  },
+  "softmedialab/sml-mirror2-RT.Redirect": {
+    "status": "done",
+    "bundle_sha256": "3218e9c356153918094d5e0add7510faae77fa9bf95e58699f94b2bd3355e512",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T16:26:40.866997+00:00"
+  },
+  "softmedialab/sml-mirror-terrasoft": {
+    "status": "done",
+    "bundle_sha256": "ca36fb3cc8a30905e861c088f4f04fbadd669fe2b9cc0ec9df9283f95ab7d004",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T16:33:48.585798+00:00"
+  },
+  "softmedialab/sml-mirror2-bn-dashboard": {
+    "status": "done",
+    "bundle_sha256": "e44bc3fe49ad00649a9e999eb8cd9bc25765bfd6e3b4504cc673ab8a2fe151af",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T18:54:43.815368+00:00"
+  },
+  "softmedialab/sml-mirror-vtargete": {
+    "status": "done",
+    "bundle_sha256": "ba88fb8cf3e45159a580e15e1bc1a27c686ab8ce5e8fe7b593e52e47a60c7944",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T22:39:04.938279+00:00"
+  },
+  "softmedialab/sml-mirror-GIP": {
+    "status": "done",
+    "bundle_sha256": "b38a770e7e19f5c705bc91639d5ee635c5fae5ffb4d79c50eccadcbe31a7b854",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-24T22:50:41.855612+00:00"
+  },
+  "softmedialab/sml-mirror-SmartCoach": {
+    "status": "done",
+    "bundle_sha256": "c3d0aa9dbfb3fdffd29c400de95a51860d6d2ab0c7a45418b246d030b302b72e",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-25T00:27:27.080227+00:00"
+  },
+  "softmedialab/sml-mirror-Mastery": {
+    "status": "done",
+    "bundle_sha256": "eb7b611da64130f4cab6c845e5af0c770d5716cf626d11caf0205db9a019d8c9",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-25T00:41:02.701479+00:00"
+  },
+  "softmedialab/sml-mirror-Kontur-Evotor": {
+    "status": "done",
+    "bundle_sha256": "156fbd17ff8747746308a860b9ff11f4d3a2ebd7de3498607bc752c087f0bfdc",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-25T00:43:11.009975+00:00"
+  },
+  "softmedialab/sml-mirror-xsolla": {
+    "status": "done",
+    "bundle_sha256": "3df8d497633e5d42a1c2b8637b91ce2ed3bbb9f0fcbe576294813ba72bc1698a",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-25T00:53:20.733377+00:00"
+  },
+  "softmedialab/sml-mirror2-eskso": {
+    "status": "done",
+    "bundle_sha256": "7153c53d6fc01629ea84bce06924c962979513bbbade66ed7ecf3e9062686639",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-25T02:16:00.832158+00:00"
+  },
+  "softmedialab/sml-mirror-WasteHub-araneusX": {
+    "status": "done",
+    "bundle_sha256": "28c520bc4251180b389c433e9573c0895fc36594f3907001099f673e1b64cdb6",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-25T02:31:45.571920+00:00"
+  },
+  "softmedialab/sml-mirror-NLMK.AttestationFrontend": {
+    "status": "done",
+    "bundle_sha256": "d98a155f92ae9c89bfdc96e7165011a07602e985507de072398b0d48afb891d4",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-25T02:58:44.401586+00:00"
+  },
+  "softmedialab/sml-mirror2-tinkoff-invest-tools": {
+    "status": "done",
+    "bundle_sha256": "a15ebcc4e365c9d55f84a5bd209b6dfd6a7161fa762d647d9b35b3853f18f4c2",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-25T03:06:24.589173+00:00"
+  },
+  "softmedialab/sml-mirror-Brusnika.RealEstateAppraisal": {
+    "status": "done",
+    "bundle_sha256": "87c14f93df175b06bb6b0276f90098c65acb03190419e404155a46e87a3180ac",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-25T03:44:48.647446+00:00"
+  },
+  "softmedialab/sml-mirror-GoogleAdsGate": {
+    "status": "done",
+    "bundle_sha256": "1db1509fb94bfa4e69107023e402deb4de62390609928db5c8254f473b8f19d3",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-25T03:47:25.561214+00:00"
+  },
+  "softmedialab/sml-mirror-krymskie-dachi": {
+    "status": "done",
+    "bundle_sha256": "3a0f89d21cb287fe915150c36d49349b7f54536f5c675d52ec29942d38cbcec0",
+    "exit_code": 0,
+    "pushed": true,
+    "ts": "2026-03-25T03:47:34.262060+00:00"
+  },
+  "softmedialab/sml-mirror-GPNH.FaceDetection": {
+    "status": "done",
+    "bundle_sha256": "9f240fdd8bbc5284f96ffe638a6762c5c14df1a9bd644a8f2fc93ffe6fbba94d",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-25T04:23:21.043976+00:00"
+  },
+  "softmedialab/sml-mirror-tenderSystem-Amaterasu777": {
+    "status": "done",
+    "bundle_sha256": "2f0d4d06e40bd4393c8a35750a4541f9bbc8f0a8b31da8b327663d24b8d2d829",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-25T04:53:39.998172+00:00"
+  },
+  "softmedialab/sml-mirror-grunt-generate-history-model": {
+    "status": "done",
+    "bundle_sha256": "6f429663da08ae6ee87a43b88c869713c89d93e8c1d7761f6158b9f5222bdeb8",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-25T04:58:00.939859+00:00"
+  },
+  "softmedialab/sml-mirror-JobFinder": {
+    "status": "done",
+    "bundle_sha256": "5a116e4947d6031d333a039403a8ea702813ed04d8d2f60b50e0945200885328",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-25T05:02:49.604064+00:00"
+  },
+  "softmedialab/sml-mirror-ASLEditor": {
+    "status": "done",
+    "bundle_sha256": "24ef51ca242c87d7789fd029209d8cb40f0f7967ae9df541239484057cddfcf7",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-25T05:40:29.059228+00:00"
+  },
+  "softmedialab/sml-mirror2-Vostok.StreamingScan": {
+    "status": "done",
+    "bundle_sha256": "57aa8681c8b83c8394ef87ebfb127c800977bbc68b7bd3f09b1dd76fda56320b",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-25T09:17:20.386744+00:00"
+  },
+  "softmedialab/sml-mirror-smartcoach-server": {
+    "status": "done",
+    "bundle_sha256": "6d66dab298c65c34a6dd6e12406a98707ac5e92f7a9c4e651e50d076543db7a5",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-25T09:19:15.070557+00:00"
+  },
+  "softmedialab/sml-mirror-test-repo": {
+    "status": "done",
+    "bundle_sha256": "5b80eb6ccac3c24863bcc25df8a9b6fee58b50ee162ca46daa706d82d15cb326",
+    "exit_code": 0,
+    "pushed": true,
+    "ts": "2026-03-25T09:19:23.463812+00:00"
+  },
+  "softmedialab/sml-mirror-cushion-action-sessions-portal": {
+    "status": "done",
+    "bundle_sha256": "49c728505cfc716361ca63e4ccba4d2c323524376444b362b0ad7475648b864b",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-25T09:19:53.288381+00:00"
+  },
+  "softmedialab/sml-mirror-react-native-web-swiper": {
+    "status": "done",
+    "bundle_sha256": "4c51b2e216da3971341f51af31467df0d48b1aae1841d2035194e886b590d690",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-25T09:22:12.434559+00:00"
+  },
+  "softmedialab/sml-mirror-Motiv.eShop": {
+    "status": "done",
+    "bundle_sha256": "ac8b00a6a060675497def1a08a3899e494f795e08da91e8d571e6314342857ef",
+    "exit_code": 1,
+    "pushed": true,
+    "ts": "2026-03-26T00:01:33.439433+00:00"
   }
 }
