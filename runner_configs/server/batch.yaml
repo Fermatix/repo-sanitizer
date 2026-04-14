@@ -30,38 +30,12 @@ scope:
   #   - 4rome
   #   - big-co
   repos:
-    - 4rome/drpodarki
-    - 4rome/etosport
-    - 4rome/lkelmtree
-    - 4rome/superstroy-m.4rome.ru
-    - 4rome/sys4tec
-    - 4rome/robinzon
-    - 4rome/gamepark
-    - 4rome/robinzon.4rome.ru
-    - 4rome/grandline.4rome.ru
-    - 4rome/educhess
-    - 4rome/myhoms
-    - 4rome/mirniy.4rome.ru
-    - 4rome/zaotdtrak.4rome.ru
-    - 4rome/ventmart
+    - 4rome/labiosthetiquestore
+    - 4rome/janssencosmetics-shop
+    - 4rome/mfpoisk_new
+    - 4rome/magblock.4rome.ru
     - 4rome/lakomie
-    - 4rome/shopsothys
-    - 4rome/homedevice
-    - 4rome/dubravushka-camp
-    - 4rome/tdancestudio.4rome.ru
-    - 4rome/dobro-sklad
-    - 4rome/psv
-    - 4rome/wood-family
-    - 4rome/pfkr
-    - 4rome/keng
-    - 4rome/mzclinik.4rome.ru
-    - 4rome/savay
-    - 4rome/redtool
     - 4rome/expo
-    - 4rome/en.discoveryschool
-    - 4rome/selencin
-    - 4rome/timeprice
-    - 4rome/medcentr
     - 4rome/profimed
     - 4rome/loloclo
     - 4rome/dirock
@@ -133,187 +107,20 @@ scope:
     - 4rome/pfkr.krasnodar
     - 4rome/pfkr.habarovsk
     - 4rome/pfkr.chelyabinsk
-    - 4rome/pfkr.belgorod
-    - 4rome/pfkr.penza
-    - 4rome/parser
-    - 4rome/gmt
-    - 4rome/prophet
-    - 4rome/lektoriy
-    - 4rome/relevant-prophet
-    - 4rome/sorter
-    - 4rome/velojira
-    - 4rome/qa-phosagro
-    - 4rome/helloworld
-    - 4rome/us-plast
-    - 4rome/phosagro
-    - 4rome/newrusklad
-    - 4rome/confaelshop
-    - 4rome/confael
-    - 4rome/clife
-    - 4rome/cdm32
-    - 4rome/cabinet.discovery
-    - 4rome/boxx
-    - 4rome/bona-plast
-    - 4rome/boltzavod
-    - 4rome/bitrix
-    - 4rome/bibihouse
-    - 4rome/bestprokat
-    - 4rome/bankrotos.4rome.ru
-    - 4rome/b24
-    - 4rome/avgis
-    - 4rome/avantatech
-    - 4rome/autoventuri.4rome.ru
-    - 4rome/aushaus.4rome.ru
-    - 4rome/artbur-redesign
-    - 4rome/artbur-mobile
-    - 4rome/artbur
     - 4rome/aqualife_old
     - 4rome/aqualife
-    - 4rome/altermoda
-    - 4rome/alpha2
-    - 4rome/alpha
-    - 4rome/allbeauty
-    - 4rome/alexrovich
-    - 4rome/akron-techno
-    - 4rome/agrozentr
-    - 4rome/agrosputnik
-    - 4rome/ac-studio
-    - 4rome/5karmanov_old
-    - 4rome/5karmanov
-    - 4rome/4rome_old
     - 4rome/4rome
-    - 4rome/2.liveorganic.4rome.ru
-    - 4rome/4offroad
-    - 4rome/4kmonitor
-    - Margo099/dao-voting-mvp
-    - YourStyle/BlockBlast
-    - YourStyle/with-group
-    - YourStyle/streetband
-    - YourStyle/t-bank-interactive
-    - YourStyle/oktana_prod
-    - YourStyle/t-games-all
-    - a-kirillov/back
-    - a-kirillov/front
-    - a-kirillov/SpaceChat
-    - a-kirillov/fastapi_bot-main
-    - anchutin/MyApplication
-    - anchutin/android4
-    - anchutin/h-and-h-app-android
-    - anchutin/calories-app
-    - anchutin/ExoPlayer-Service
-    - anchutin/android1
-    - anchutin/android2
-    - anchutin/android-dev
-    - anchutin/ArchitectingVideoPlaybackThroughService
-    - anchutin/585-android-retail
-    - anchutin/585-android-customer
-    - anchutin/arcpay-wallet-android
-    - anchutin/android
-    - anchutin/dalongpay
-    - anchutin/FE360
-    - anchutin/appuchino
-    - anchutin/Racing
-    - anchutin/585-ios-customer
-    - anchutin/585-ios-retail
-    - anchutin/Contrib-sdk-1.13
-    - anchutin/SurfAndroidStandard
-    - anchutin/Calculator2
-    - anchutin/ALLieStick
-    - anchutin/Calculator
-    - anchutin/585-schema
-    - anchutin/vanfromtagil-vtk-task-b9a77ac681de
-    - anchutin/vanfromtagil-webjiletka-8106fa70731d
-    - anchutin/ib_anchutin-alibra-ios-e8183c4c52d0
-    - anchutin/Alex_Sk-dentamatch_ios-f4a031f8cc86
-    - anchutin/sardnej-lendos-ed7b016de09d
-    - anchutin/Alex_Sk-dentamatch_html-0a020be35c37
-    - anchutin/ib_anchutin-alibra-server-3296e49476cd
-    - anchutin/IvaschenkoAI-mobile-portal-65aa1332fde2
-    - anchutin/ib_anchutin-chaperone-ios-d12d3b6c13ac
-    - anchutin/ib_anchutin-epidemia-ios-f9b62c990b67
-    - anchutin/Alex_Sk-denta-match-android-6d47f31af084
-    - anchutin/Alex_Sk-dentamatch_php-d0532d2a27b4
-    - anchutin/ib_anchutin-storytime-ios-53c0c77c1031
-    - anchutin/ib_anchutin-chaperone-android-18511e34d0db
-    - anchutin/sardnej-my-kin-python-admin-0a6377714ee5
-    - anchutin/sardnej-story-time-f6a4a263fe55
-    - anchutin/sardnej-gp-api-97f5f6d22763
-    - anchutin/sardnej-pictures-collector-6adefd287758
-    - artsofte/nbot230-blooby
-    - artsofte/nbot230-snips-app
-    - artsofte/nbot230-fizzy-vision
     - bobak/VideoPlayer
     - bobak/Ev-Car
     - bobak/ruscanna
     - bobak/lawyer
     - bobak/Next-Sneakers
-    - borodos/borodos-Threads
-    - borodos/borodos-quickly-payment
-    - borodos/borodos-slider-react
-    - borodos/borodos-redux-project
-    - borodos/borodos-todo-redux
-    - borodos/borodos-vue-todo-app
-    - borodos/borodos-apple-chat
-    - borodos/borodos-SiteDasha
-    - borodos/borodos-altracore-app
-    - borodos/borodos-Chat-Desktop-macOS
-    - borodos/borodos-give-hope
-    - borodos/borodos-ani-server
-    - borodos/borodos-FoodSher-BackEnd-Server
-    - borodos/borodos-altracore-frontend
-    - borodos/borodos-mern-chat-backend
-    - borodos/borodos-altracore-black-edition
-    - borodos/borodos-ani-app
-    - borodos/borodos-mobile-app
-    - borodos/borodos-computer-games-app
-    - borodos/borodos-mern-chat
-    - borodos/borodos-AuthorizationServer
-    - borodos/borodos-srakaton-case
-    - borodos/borodos-redux-saga-project
-    - borodos/borodos-ServerDasha
-    - borodos/borodos-app-foodsher
-    - bukin/WaveBot
-    - bukin/TripleBlup
-    - code-9/3MillionDogs-master
-    - code-9/upsafevpn-flutter-main
-    - code-9/ttk-backend-master
-    - code-9/tecarbo-revit-main
-    - code-9/tecarbo-erp-web-main
-    - code-9/selesta-api-backend-dev
-    - code-9/backend-repo-ysm-417997d362cf
-    - code-9/backend-repo-ticketsapp-8380943fdfe0
-    - code-9/backend-repo-swiftfix-web-5600cb467937
-    - code-9/backend-repo-swiftfix-fb031824f8f2
-    - code-9/backend-repo-sixpack-32ecb636c20d
-    - code-9/backend-repo-rivet-a5a648fb66f2
-    - code-9/backend-repo-remmy-4a7d4de36ea2
-    - code-9/backend-repo-perp-653c9ce3cb43
-    - code-9/backend-repo-juiz-dc4a30e57824
-    - code-9/backend-repo-generation-story-189b6486e3a2
-    - code-9/backend-repo-freetopia-1a10e23de23b
-    - code-9/backend-repo-flutter-225cd75e6ceb
-    - code-9/backend-repo-endohelp-40e1d01b53ea
-    - code-9/backend-repo-campuspursuit-5c3ba84a1bcb
-    - code-9/backend-repo-boilerplatenode-d6fb025af3ce
-    - code-9/backend-repo-boilerplate-891f2d72f078
-    - code-9/backend-repo-blip-c514344476e3
-    - code-9/backend-repo-bittley-16563925bf7a
     - d2d/Truck-Drive
     - d2d/WaterConnect
     - d2d/GumHero
     - d2d/PerfectShift
-    - dentugov/yuryblakhin-itmsclub
-    - dentugov/dentugov-termoprom
     - doubletapp/ar-rings
-    - doubletapp/eatstreet-api
-    - doubletapp/lingoline_flutter
     - doubletapp/yolov3
-    - doubletapp/homework_bot
-    - doubletapp/maid-ai
-    - doubletapp/checkoffice-ios
-    - doubletapp/pivotal-views-site
-    - doubletapp/dt-prometheus
-    - doubletapp/umn-bot-2022
     - doubletapp/dr-diesel-backend
     - doubletapp/elixirgallery
     - doubletapp/BigFish-iOS_2
@@ -355,6 +162,37 @@ scope:
     - doubletapp/neic
     - doubletapp/skrwt_2
     - doubletapp/dump-2022-jokes-ml
+    - iliapnmrv/mo4.mobile
+    - kuzvesov/magento-tt
+    - kuzvesov/vinoteka
+    - kuzvesov/neokancopt
+    - kuzvesov/quicksilver-boats
+    - kuzvesov/mettrans
+    - kuzvesov/moll-system
+    - kuzvesov/mtt-tumen
+    - kuzvesov/videomotors
+    - kuzvesov/shezlongy
+    - kuzvesov/mtt74
+    - kuzvesov/qpall
+    - kuzvesov/moll-system-design
+    - kuzvesov/quadro
+    - kuzvesov/videomotors-design
+    - kuzvesov/gradiz
+    - kuzvesov/wine66
+    - kuzvesov/himkor
+    - kuzvesov/its
+    - kuzvesov/iq-ec
+    - polotsky/Autoproof-hub.go
+    - polotsky/fake-example
+    - qw1nt/Qw1nt-z-girls.archero-like
+    - softmedialab/sml-mirror-SB-Innoprom2018
+    - softmedialab/sml-mirror-prosfostsystems-origin
+    - softmedialab/Vostok.VMetra
+    - softmedialab/WasteHub_tereshkov
+    - softmedialab/prosfostsystems_origin
+    - softmedialab/ExbicoBitrixGate
+    - softmedialab/materialui-table
+    - softmedialab/SberStand
 
 # ---------------------------------------------------------------------------
 # Rulepack (same as --rulepack in single-repo mode)

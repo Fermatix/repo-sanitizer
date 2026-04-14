@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 JSON_PATH = Path("batch_state.json")
-TXT_PATH = Path("repo_to_analyze.txt")
+TXT_PATH = Path("runner_configs/repo_to_analyze.txt")
 
 
 def main() -> None:
