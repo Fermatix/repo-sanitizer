@@ -566,11 +566,6 @@
     "pushed": true,
     "ts": "2026-03-21T09:48:18.081045+00:00"
   },
-  "softmedialab/sml-mirror-prosfostsystems-origin": {
-    "status": "failed",
-    "error": "maximum recursion depth exceeded",
-    "ts": "2026-03-21T10:06:47.535545+00:00"
-  },
   "softmedialab/sml-mirror2-it-internal": {
     "status": "done",
     "bundle_sha256": "1717359c52a5d5fc4aea7477c49b8b2d1df0638b35df6981ea6b23dc9c2dbd4d",
@@ -746,11 +741,6 @@
     "pushed": true,
     "ts": "2026-03-21T22:24:59.392865+00:00"
   },
-  "softmedialab/Vostok.VMetra": {
-    "status": "failed",
-    "error": "Command '['git', 'push', '--mirror', 'https://oauth2:glpat-xVbtOWFr1AZbd-yAdWKckm86MQp1OmQ0NTYyCw.01.120qaxmh7@gitlab.com/doubletapp/data-llm/partner-private-repos-delivery/softmedialab/Vostok.VMetra.git']' returned non-zero exit status 1.",
-    "ts": "2026-03-21T23:27:42.154731+00:00"
-  },
   "softmedialab/NLMK.AttestationPsmServer": {
     "status": "done",
     "bundle_sha256": "bcd0ef8e89b520bbd9c81a2babfae6140f64b69e795f0fedd91ef0a811152ecb",
@@ -912,11 +902,6 @@
     "pushed": true,
     "ts": "2026-03-22T04:20:27.417548+00:00"
   },
-  "softmedialab/WasteHub_tereshkov": {
-    "status": "failed",
-    "error": "Command '['git', 'push', '--mirror', 'https://oauth2:glpat-xVbtOWFr1AZbd-yAdWKckm86MQp1OmQ0NTYyCw.01.120qaxmh7@gitlab.com/doubletapp/data-llm/partner-private-repos-delivery/softmedialab/WasteHub_tereshkov.git']' returned non-zero exit status 1.",
-    "ts": "2026-03-22T04:21:14.135696+00:00"
-  },
   "softmedialab/react-native-datepicker": {
     "status": "done",
     "bundle_sha256": "e144262edfa1597edaaade69bc0418678e84f0cda6aadd6f7919610292f8f1eb",
@@ -1070,11 +1055,6 @@
     "exit_code": 1,
     "pushed": true,
     "ts": "2026-03-22T12:55:45.361242+00:00"
-  },
-  "softmedialab/prosfostsystems_origin": {
-    "status": "failed",
-    "error": "maximum recursion depth exceeded",
-    "ts": "2026-03-22T13:02:33.538649+00:00"
   },
   "softmedialab/Sibgeoproject": {
     "status": "done",
@@ -1642,21 +1622,6 @@
     "exit_code": 1,
     "pushed": true,
     "ts": "2026-03-24T23:38:05.516092+00:00"
-  },
-  "softmedialab/ExbicoBitrixGate": {
-    "status": "failed",
-    "error": "Command '['git', 'push', '--mirror', 'https://oauth2:glpat-xVbtOWFr1AZbd-yAdWKckm86MQp1OmQ0NTYyCw.01.120qaxmh7@gitlab.com/doubletapp/data-llm/partner-private-repos-delivery/softmedialab/ExbicoBitrixGate.git']' returned non-zero exit status 1.",
-    "ts": "2026-03-24T23:59:52.208289+00:00"
-  },
-  "softmedialab/materialui-table": {
-    "status": "failed",
-    "error": "Command '['git', 'push', '--mirror', 'https://oauth2:glpat-xVbtOWFr1AZbd-yAdWKckm86MQp1OmQ0NTYyCw.01.120qaxmh7@gitlab.com/doubletapp/data-llm/partner-private-repos-delivery/softmedialab/materialui-table.git']' returned non-zero exit status 1.",
-    "ts": "2026-03-25T00:10:58.939026+00:00"
-  },
-  "softmedialab/SberStand": {
-    "status": "failed",
-    "error": "Command '['git', 'clone', '--no-single-branch', 'https://oauth2:glpat-xVbtOWFr1AZbd-yAdWKckm86MQp1OmQ0NTYyCw.01.120qaxmh7@gitlab.com/doubletapp/data-llm/partner-private-repos/softmedialab/SberStand.git', '/private/tmp/repo-san-work/softmedialab/SberStand/out/work']' returned non-zero exit status 128.",
-    "ts": "2026-03-25T00:51:21.478504+00:00"
   },
   "softmedialab/eskso": {
     "status": "done",
