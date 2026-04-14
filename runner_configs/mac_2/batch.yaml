@@ -379,9 +379,9 @@ salt_env: REPO_SANITIZER_SALT
 # Parallelization
 # ---------------------------------------------------------------------------
 processing:
-  workers: 8                       # parallel worker processes (set to CPU core count)
+  workers: 4                       # parallel worker processes (set to CPU core count)
   ner_service_port: 8765            # local port for the shared NER HTTP service
-  ner_batch_size: 128                # GPU inference batch size
+  ner_batch_size: 64                # GPU inference batch size
   work_base_dir: /tmp/repo-san-work # temporary working directory per repo
   keep_work_dirs: false             # delete work dirs after successful push
 
