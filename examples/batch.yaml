@@ -8,33 +8,33 @@
 #   List repos (dry):    repo-sanitizer batch list --config examples/batch.yaml
 
 # ---------------------------------------------------------------------------
-# GitLab connection
+# GitLab connection # You can configure this
 # ---------------------------------------------------------------------------
 gitlab:
   url: https://gitlab.com            # host URL only (no group/project path)
   token_env: GITLAB_TOKEN           # env var holding the Personal Access Token
                                     # (needs read_api + read_repository on source group,
                                     #  api + write_repository on delivery group)
-  source_group: doubletapp/data-llm/partner-private-repos
-  delivery_group: doubletapp/data-llm/partner-private-repos-delivery
+  source_group: source_group/subgroup
+  delivery_group: delivery_group/subgroup
   clone_depth: 0                    # 0 = full history (required for history rewrite)
 
 # ---------------------------------------------------------------------------
-# Scope — which repos to process.
+# Scope — which repos to process. # You can configure this
 # Priority: repos > partners > all (highest to lowest).
 # Use CLI flags --partner / --repo to override at runtime.
 # ---------------------------------------------------------------------------
 scope:
   all: true
   # partners:
-  #   - 4rome
+  #   - ambrella
   #   - big-co
   # repos:
   #   - acme-corp/backend-api
   #   - big-co/frontend-app
 
 # ---------------------------------------------------------------------------
-# Rulepack (same as --rulepack in single-repo mode)
+# Rulepack (same as --rulepack in single-repo mode) # DO NOT CHANGE THIS
 # ---------------------------------------------------------------------------
 rulepack: examples/rules
 
@@ -42,7 +42,7 @@ rulepack: examples/rules
 salt_env: REPO_SANITIZER_SALT
 
 # ---------------------------------------------------------------------------
-# Parallelization
+# Parallelization # You can configure this depends on your computing device
 # ---------------------------------------------------------------------------
 processing:
   workers: 24                       # parallel worker processes (set to CPU core count)

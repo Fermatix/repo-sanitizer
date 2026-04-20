@@ -1,3 +1,5 @@
+# You can add your keys, however, it is forbidden to delete keys. 
+#
 # Internal / corporate domains
 # ──────────────────────────────────────────────────────────────────
 # One domain per line. Matching is case-insensitive (Aho-Corasick).

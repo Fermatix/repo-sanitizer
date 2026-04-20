@@ -1,3 +1,5 @@
+# You can add your keys, however, it is forbidden to delete keys. 
+#
 # Internal project / product codenames to redact
 # ──────────────────────────────────────────────────────────────────
 # One codename per line. Matching is case-insensitive (Aho-Corasick).

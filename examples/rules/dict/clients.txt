@@ -1,3 +1,5 @@
+# You can add your keys, however, it is forbidden to delete keys. 
+#
 # Client / customer names to redact
 # ──────────────────────────────────────────────────────────────────
 # One name per line. Matching is case-insensitive (Aho-Corasick).

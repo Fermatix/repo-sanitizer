@@ -1,3 +1,5 @@
+# You can add your keys, however, it is forbidden to delete keys. 
+#
 # Organization / company names to redact
 # ──────────────────────────────────────────────────────────────────
 # One term per line. Matching is case-insensitive (Aho-Corasick).
@@ -14,25 +16,6 @@
 # mycompany
 # MC
 # MYCO
-# Doubletapp
-# doubletapp
-# 2tapp
-# dt
-# DT
-# Буравчик
-# буравчик
-# Fermatix
-# fermatix
-# grably
-# grably
-# Toloka
-# toloka
-# nebius
-# Nebius
-# Hexabola
-# Hexabola
-# Algorista
-# algorista
 
 # ── Subsidiaries / brands ─────────────────────────────────────────
 # MyCompany Labs
@@ -74,33 +57,3 @@
 # Co
 
 # ── Partners ───────────────────────────────────────────────────
-# 4rome
-# 65apps
-# alto
-# Alto
-# Artsofte
-# artsofte
-# bershad.sky
-# bershadsky
-# Code9
-# code9
-# CRT
-# d2d
-# D2D
-# Extyl
-# extyl
-# Intelsy
-# intelsy
-# MadBrains
-# madbrains
-# soft-media-lab
-# softmedialab
-# Spectr.dev
-# Spectrdev
-# Spectr
-# surf
-# webteam
-# Webteam
-# WebTeam
-# Глобус
-# Globus
