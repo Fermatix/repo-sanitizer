@@ -91,6 +91,8 @@ scoop install gitleaks       # Windows
 
 On first run, `transformers` downloads `Davlan/bert-base-multilingual-cased-ner-hrl` (~700 MB) to `~/.cache/huggingface/`. See [docs/offline.md](docs/offline.md) for air-gapped setup.
 
+> **GPU requirement:** NER inference (`--ner-device cuda`) requires a GPU with at least **12 GB VRAM** (e.g. NVIDIA RTX 3080 Ti 12 GB or better). On devices with less VRAM, use `--ner-device cpu` or run a shared `ner-service` on a capable machine.
+
 ---
 
 ## CLI
