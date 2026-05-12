@@ -162,13 +162,18 @@ class GitLabClient:
             )
 
             logger.debug("Pushing to %s", delivery_url.split("@")[-1])
-            subprocess.run(
+            result = subprocess.run(
                 ["git", "push", "--mirror", delivery_url],
                 cwd=tmp_path,
-                check=True,
                 capture_output=True,
                 text=True,
             )
+            if result.returncode != 0:
+                # GitLab rejects refs with '#' and some other special chars.
+                logger.warning("git push --mirror failed: %s", result.stderr.strip())
+                raise RuntimeError(
+                    f"git push --mirror failed (exit {result.returncode}): {result.stderr.strip()}"
+                )
 
     # ------------------------------------------------------------------
     # Helpers

@@ -79,6 +79,47 @@ def test_fetch_materializes_all_branches(tmp_path: Path, rules_path: Path):
     assert "bugfix-commit" in bugfix_log
 
 
+def test_fetch_complex_branch_names(tmp_path: Path, rules_path: Path):
+    source_repo = tmp_path / "source"
+    source_repo.mkdir(parents=True)
+    _run(["git", "init", "-b", "main"], source_repo)
+    _run(["git", "config", "user.name", "Test"], source_repo)
+    _run(["git", "config", "user.email", "t@t.com"], source_repo)
+    (source_repo / "f.txt").write_text("x", encoding="utf-8")
+    _run(["git", "add", "-A"], source_repo)
+    _run(["git", "commit", "-m", "init"], source_repo)
+
+    # Branch with slash (hierarchical name — common in real repos)
+    _run(["git", "checkout", "-b", "feature/JIRA-42"], source_repo)
+    (source_repo / "a.txt").write_text("a", encoding="utf-8")
+    _run(["git", "add", "-A"], source_repo)
+    _run(["git", "commit", "-m", "feat"], source_repo)
+    _run(["git", "checkout", "main"], source_repo)
+
+    # Branch with hash — git allows it locally even if some remotes reject it
+    _run(["git", "checkout", "-b", "fix#99"], source_repo)
+    (source_repo / "b.txt").write_text("b", encoding="utf-8")
+    _run(["git", "add", "-A"], source_repo)
+    _run(["git", "commit", "-m", "fix"], source_repo)
+    _run(["git", "checkout", "main"], source_repo)
+
+    out_dir = tmp_path / "out"
+    ctx = RunContext.create(
+        source=str(source_repo),
+        out_dir=out_dir,
+        rulepack_path=rules_path,
+        salt_env="REPO_SANITIZER_SALT",
+    )
+    # Must not raise even for tricky branch names
+    fetch(ctx, str(source_repo))
+
+    heads = _local_heads(ctx.work_dir)
+    assert "main" in heads
+    assert "feature/JIRA-42" in heads   # slash branch must be materialized
+    # fix#99: git allows it locally — must be present too
+    assert "fix#99" in heads
+
+
 def test_fetch_with_rev_keeps_all_branches(tmp_path: Path, rules_path: Path):
     source_repo = tmp_path / "source"
     feature_sha = _create_multibranch_repo(source_repo)
