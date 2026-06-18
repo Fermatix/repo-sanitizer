@@ -7,7 +7,6 @@ import subprocess
 from pathlib import Path
 
 from repo_sanitizer.context import RunContext
-from repo_sanitizer.steps._git_utils import materialize_local_branches
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +21,10 @@ def run_package(ctx: RunContext) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     bundle_path = output_dir / "sanitized.bundle"
 
-    # Ensure every origin/* branch is represented as a local refs/heads/*
-    # so the bundle advertises full branch topology, not only remotes.
-    materialize_local_branches(ctx.work_dir)
+    # The ref set is owned by ref-reconcile (steps/ref_reconcile.py), which ran
+    # before this step: it keeps every branch under refs/heads/* (scrubbed names)
+    # and deleted all tags / remotes / replace refs. So we bundle by branches +
+    # HEAD only — NOT --all, which would re-include tags and remote-tracking refs.
 
     # Detect empty repository (no commits) before attempting to bundle.
     check = subprocess.run(
@@ -67,7 +67,7 @@ def run_package(ctx: RunContext) -> Path:
         )
 
     result = subprocess.run(
-        ["git", "bundle", "create", str(bundle_path), "--all"],
+        ["git", "bundle", "create", str(bundle_path), "--branches", "HEAD"],
         cwd=str(ctx.work_dir),
         capture_output=True,
         text=True,

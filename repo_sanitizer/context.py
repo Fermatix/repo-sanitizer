@@ -59,6 +59,18 @@ class RunContext:
     history_blob_post_findings: list[Finding] = field(default_factory=list)
     redaction_manifest: list[dict] = field(default_factory=list)
     timings: dict = field(default_factory=dict)
+    # Branch topology captured at intake (steps/fetch.py) and the final ref set
+    # produced by the ref-reconcile step (steps/ref_reconcile.py). intake_branch_tips
+    # maps every local branch NAME present after intake → its tip SHA (the
+    # pre-rewrite tip, used to look the rewritten tip up in filter-repo's
+    # commit-map). branch_rename_map maps each intake branch name → its final
+    # scrubbed slug (or None if it pruned to nothing). output_branches /
+    # output_default_branch are the shipped head slugs + HEAD.
+    intake_branch_tips: dict = field(default_factory=dict)     # {name: tip_sha}
+    intake_default_branch: str = ""                            # default branch at intake
+    branch_rename_map: dict = field(default_factory=dict)      # {intake_name: slug|None}
+    output_branches: list = field(default_factory=list)        # final head slugs
+    output_default_branch: str = ""                            # HEAD target slug
     rev: str = "HEAD"
     max_file_mb: int = 20
     history_since: Optional[str] = None

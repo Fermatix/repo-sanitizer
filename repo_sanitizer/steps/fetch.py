@@ -6,7 +6,11 @@ import subprocess
 from pathlib import Path
 
 from repo_sanitizer.context import RunContext
-from repo_sanitizer.steps._git_utils import materialize_local_branches
+from repo_sanitizer.steps._git_utils import (
+    detect_default_branch,
+    list_all_branch_tips,
+    materialize_local_branches,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +76,18 @@ def fetch(ctx: RunContext, source: str) -> None:
             check=True,
             capture_output=True,
             text=True,
+        )
+
+    # Record the branch topology so ref-reconcile can keep ALL branches (with
+    # scrubbed names) in the output bundle. Captured AFTER the optional --rev
+    # checkout (a detached checkout leaves refs/heads/* untouched, so the set is
+    # still correct). The plain directory-copy path (no .git) has no refs.
+    if (dest / ".git").exists():
+        ctx.intake_branch_tips = list_all_branch_tips(dest)
+        ctx.intake_default_branch = detect_default_branch(dest)
+        logger.debug(
+            "Intake branches: %d (default=%r)",
+            len(ctx.intake_branch_tips), ctx.intake_default_branch,
         )
 
     logger.debug("Source fetched to %s", dest)

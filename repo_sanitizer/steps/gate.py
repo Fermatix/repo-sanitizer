@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
 import time
 from pathlib import Path
 
@@ -90,9 +91,49 @@ def run_gate_check(ctx: RunContext) -> dict:
         "files": config_violations,
     }
 
+    # NO_TAGS gate (blocking) — ref-reconcile must have dropped every tag.
+    t0 = time.perf_counter()
+    leftover_tags = _list_refs(ctx, "refs/tags")
+    gate_timings["NO_TAGS"] = round(time.perf_counter() - t0, 4)
+    results["NO_TAGS"] = {
+        "passed": len(leftover_tags) == 0,
+        "description": "No tags in the output bundle (all tags dropped)",
+        "failing_count": len(leftover_tags),
+        "refs": leftover_tags[:50],
+    }
+
+    # BRANCHES_PRESERVED gate (blocking in the LOSS direction) — every intake
+    # branch must be accounted for (kept under a scrubbed slug, or legitimately
+    # pruned to nothing), and every kept slug must exist on disk. Keeping all
+    # branches is the overriding priority, so an unaccounted-for loss fails.
+    t0 = time.perf_counter()
+    lost = _check_branches_preserved(ctx)
+    gate_timings["BRANCHES_PRESERVED"] = round(time.perf_counter() - t0, 4)
+    results["BRANCHES_PRESERVED"] = {
+        "passed": len(lost) == 0,
+        "description": "Every intake branch survives in the output (or pruned to nothing)",
+        "failing_count": len(lost),
+        "branches": lost[:50],
+    }
+
+    # CLEAN_REF_NAMES gate (NON-BLOCKING warning) — residual brand/PII detectable
+    # in a shipped branch name. Per the user's priority (keep all branches even at
+    # some leak cost), this never blocks or drops a branch; it surfaces names for
+    # the mandatory Pass-2 audit.
+    t0 = time.perf_counter()
+    dirty_names = _check_ref_names(ctx)
+    gate_timings["CLEAN_REF_NAMES"] = round(time.perf_counter() - t0, 4)
+    results["CLEAN_REF_NAMES"] = {
+        "passed": len(dirty_names) == 0,
+        "blocking": False,
+        "description": "No brand/PII detected in shipped branch names (advisory)",
+        "failing_count": len(dirty_names),
+        "names": dirty_names[:50],
+    }
+
     ctx.timings.setdefault("gates", {}).update(gate_timings)
 
-    all_passed = all(g["passed"] for g in results.values())
+    all_passed = all(g["passed"] for g in results.values() if g.get("blocking", True))
     exit_code = 0 if all_passed else 1
 
     result_doc = {
@@ -120,10 +161,74 @@ def run_gate_check(ctx: RunContext) -> dict:
     for name, gate in results.items():
         if gate["passed"]:
             logger.debug("Gate %s: PASS", name)
+        elif not gate.get("blocking", True):
+            logger.warning("Gate %s ADVISORY: %d item(s) — non-blocking", name, gate["failing_count"])
         else:
             logger.warning("Gate %s FAIL: %d findings remain", name, gate["failing_count"])
 
     return result_doc
+
+
+def _list_refs(ctx: RunContext, prefix: str) -> list[str]:
+    """Short names of refs under ``prefix`` (e.g. 'refs/tags') in the work dir.
+
+    Returns [] if the work dir is absent or not a git repo (gate unit tests
+    construct a ctx with no real work tree)."""
+    try:
+        r = subprocess.run(
+            ["git", "for-each-ref", "--format=%(refname:short)", prefix],
+            cwd=str(ctx.work_dir), capture_output=True, text=True,
+        )
+    except (FileNotFoundError, NotADirectoryError):
+        return []
+    if r.returncode != 0:
+        return []
+    return [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
+
+
+def _check_branches_preserved(ctx: RunContext) -> list[str]:
+    """Return intake branch names that were LOST (not kept and not pruned), plus
+    kept slugs that are missing on disk. Empty = all branches preserved."""
+    intake = set(ctx.intake_branch_tips or {})
+    rename = ctx.branch_rename_map or {}
+    lost = sorted(intake - set(rename))  # vanished without being accounted for
+    heads = set(_list_refs(ctx, "refs/heads"))
+    for name, slug in rename.items():
+        if slug and slug not in heads:
+            lost.append(f"{name}→{slug} (missing on disk)")
+    return lost
+
+
+def _check_ref_names(ctx: RunContext) -> list[str]:
+    """Advisory: shipped branch names that still match a rulepack brand term or
+    PII pattern. Cheap heuristic (no NER) reusing the loaded rulepack; skipped
+    when no rulepack is loaded (e.g. apply-map)."""
+    rulepack = getattr(ctx, "rulepack", None)
+    if rulepack is None:
+        return []
+    heads = _list_refs(ctx, "refs/heads")
+    if not heads:
+        return []
+    try:
+        from repo_sanitizer.steps.scan import build_brand_terms
+        terms, _keep = build_brand_terms(rulepack)
+    except Exception:  # noqa: BLE001
+        terms = set()
+    lowered_terms = {t.lower() for t in terms if t and len(t) >= 3}
+    dirty: list[str] = []
+    for name in heads:
+        low = name.lower()
+        if any(t in low for t in lowered_terms):
+            dirty.append(name)
+            continue
+        for p in rulepack.pii_patterns:
+            try:
+                if p.pattern.search(name):
+                    dirty.append(name)
+                    break
+            except Exception:  # noqa: BLE001
+                continue
+    return dirty
 
 
 def _check_forbidden_files(ctx: RunContext) -> list[str]:

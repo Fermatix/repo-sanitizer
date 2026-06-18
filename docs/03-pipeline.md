@@ -258,6 +258,31 @@ For each `(blob_sha, path)` pair:
 
 ---
 
+## 3.9b Step 7b — Ref Reconcile
+
+**Implementation:** `repo_sanitizer/steps/ref_reconcile.py`
+
+Runs immediately after the history rewrite (so the post-scans + secret gate certify exactly
+the shipped ref set) and again in `apply-map` after the brand rewrite. It makes the output
+carry **every** branch with a best-effort scrubbed name, drops all tags, and sets HEAD:
+
+1. Resolve each intake branch's rewritten tip via filter-repo's `commit-map` (authoritative;
+   robust to the known `--partial` "stale local head" case), falling back to the in-place
+   head, then the intake tip. A branch whose tip pruned to nothing is dropped (logged).
+2. Compute a best-effort scrubbed, valid, collision-free ref slug per branch name, reusing
+   the same byte-scrubber the rewrite used (`Scrubber.message`) plus a git-ref-name
+   sanitizer. Clean names pass through unchanged; a name that resists scrubbing falls back
+   to `branch-<hash12>` — a branch is **never** dropped to satisfy name scrubbing.
+3. Force-create `refs/heads/<slug>` at each rewritten tip, point HEAD at the scrubbed
+   default, then delete every original-named head + all `refs/remotes/*`, `refs/tags/*`,
+   `refs/replace/*` (`git update-ref --stdin`, `option no-deref` for symrefs).
+
+Records `ctx.branch_rename_map` / `ctx.output_branches` for the §3.11 gates.
+
+**Priority:** keeping every branch wins over name cleanliness — `CLEAN_REF_NAMES` is advisory.
+
+---
+
 ## 3.10 Steps 8 / 8b — History Post-Scans
 
 Exact mirrors of Steps 6 and 6b, executed on the rewritten repository. Results are stored in `ctx.history_post_findings` and `ctx.history_blob_post_findings`.
@@ -286,8 +311,11 @@ all_post = ctx.post_findings + ctx.history_post_findings + ctx.history_blob_post
 | `ENDPOINTS` | `f.category == Category.ENDPOINT` | No internal domains/IPs remain |
 | `FORBIDDEN_FILES` | File with `action == DELETE` still exists on disk | No forbidden files in output |
 | `CONFIGS` | Deny-glob matching file without allow-suffix exists on disk | No bare config files in output |
+| `NO_TAGS` | Any `refs/tags/*` remains in the work tree | All tags dropped from the output |
+| `BRANCHES_PRESERVED` | An intake branch is neither kept (scrubbed slug) nor pruned-to-nothing | No branch silently lost |
+| `CLEAN_REF_NAMES` *(advisory)* | A shipped branch name still matches a brand term / PII pattern | Residual identifier in a branch name — **non-blocking** |
 
-A gate passes if its check produces zero failing items. `all_passed` is `True` only if every gate passes. Exit code 0 indicates a fully sanitized output; exit code 1 must block delivery.
+A gate passes if its check produces zero failing items. `all_passed` is `True` only if every **blocking** gate passes (the advisory `CLEAN_REF_NAMES` is excluded — keeping all branches is the priority, so a residual name leak is surfaced for the audit, not a delivery blocker). Exit code 0 indicates a fully sanitized output; exit code 1 must block delivery.
 
 **Artifact:** `artifacts/result.json` — see [§2.8](02-data-model.md#28-json-report-schemas) for the full schema.
 
@@ -299,13 +327,18 @@ A gate passes if its check produces zero failing items. `all_passed` is `True` o
 
 **Algorithm:**
 
-1. Materialize all remote branches as local refs (`refs/heads/*` from `refs/remotes/origin/*`).
-2. Verify the repository has at least one commit (empty repositories cannot be bundled).
-3. Stage any unstaged changes: `git add -A`.
-4. If there are changes to commit: `git commit -m "Sanitized by repo-sanitizer"`.
-5. Create bundle: `git bundle create output/sanitized.bundle --all`
-6. Compute SHA-256 of the bundle file.
-7. Update `artifacts/result.json` with `bundle_sha256` and `bundle_path`.
+1. Verify the repository has at least one commit (empty repositories cannot be bundled).
+2. Stage any unstaged changes: `git add -A`.
+3. If there are changes to commit: `git commit -m "Sanitized by repo-sanitizer"`.
+4. Create bundle: `git bundle create output/sanitized.bundle --branches HEAD`
+5. Compute SHA-256 of the bundle file.
+6. Update `artifacts/result.json` with `bundle_sha256` and `bundle_path`.
+
+The ref set is owned by the **ref-reconcile step** (§3.9b), which runs after the history
+rewrite: it keeps every branch under `refs/heads/*` (with best-effort scrubbed names) and
+deletes all tags, remote-tracking refs, and replace refs. Packaging therefore bundles
+`--branches HEAD` — every branch plus HEAD — and **never `--all`**, which would re-include
+tags and `refs/remotes/*`.
 
 The resulting bundle is a self-contained git archive. Recipients can clone it directly:
 

@@ -17,6 +17,7 @@ from repo_sanitizer.steps.history_scan import run_history_scan
 from repo_sanitizer.steps.inventory import run_inventory
 from repo_sanitizer.steps.package import run_package
 from repo_sanitizer.steps.redact import run_redact
+from repo_sanitizer.steps.ref_reconcile import run_ref_reconcile
 from repo_sanitizer.steps.scan import build_detectors, run_scan
 
 logger = logging.getLogger(__name__)
@@ -215,6 +216,14 @@ def run_sanitize(
     ctx.timings["steps"]["history_rewrite"] = round(elapsed, 3)
     logger.info("History rewritten (%.1fs)", elapsed)
 
+    # Step 7b: Reconcile refs — keep ALL branches (best-effort scrubbed names),
+    # drop tags/remotes/replace, set HEAD. Runs BEFORE the post-scans so the
+    # verification + secret gate certify exactly the shipped ref set (heads only),
+    # not content in tags/remotes that will not ship.
+    t0 = time.perf_counter()
+    run_ref_reconcile(ctx)
+    ctx.timings["steps"]["ref_reconcile"] = round(time.perf_counter() - t0, 3)
+
     # Step 8 + 8b: History post-scans (verification — silent)
     t0 = time.perf_counter()
     ctx.history_post_findings = run_history_scan(
@@ -407,6 +416,10 @@ def run_apply_map(
     # Verify the map FULLY applied (a surviving pattern = a blob/path the rewrite
     # could not decode/rewrite). Does NOT certify brand-completeness — a brand the
     # map never listed is the mandatory Pass-2 codex/agent audit's job.
+    # Keep all branches (now also brand-scrubbing their NAMES), drop tags/remotes,
+    # set HEAD — BEFORE verification so verify scopes to the shipped refs (heads)
+    # only, not content in tags/remotes that will not ship.
+    run_ref_reconcile(ctx, brand_map_rows=rows)
     survivors = verify_brand_map_applied(ctx, rows)
     run_package(ctx)
     elapsed = time.perf_counter() - t_total
