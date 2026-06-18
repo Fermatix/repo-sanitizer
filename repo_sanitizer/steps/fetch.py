@@ -46,12 +46,23 @@ def fetch(ctx: RunContext, source: str) -> None:
         )
         _fetch_all_refs(dest)
         materialize_local_branches(dest)
+    elif source_path.is_file():
+        # A git bundle (e.g. a Pass-1 sanitized.bundle) — clone it like a repo.
+        logger.debug("Cloning git bundle %s → %s", source, dest)
+        subprocess.run(
+            ["git", "clone", "--no-single-branch", str(source_path), str(dest)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        _fetch_all_refs(dest)
+        materialize_local_branches(dest)
     elif source_path.is_dir():
         logger.debug("Copying directory %s → %s", source, dest)
         shutil.copytree(source_path, dest)
     else:
         raise ValueError(
-            f"Source '{source}' is not a valid local directory or Git URL."
+            f"Source '{source}' is not a valid local directory, git bundle, or Git URL."
         )
 
     if ctx.rev != "HEAD":

@@ -54,7 +54,18 @@ def build_brand_terms(rulepack: Rulepack) -> tuple[list[str], set[str]]:
     return out, keep
 
 
-def build_detectors(rulepack: Rulepack, ner_service_url: str | None = None) -> list[Detector]:
+def build_detectors(
+    rulepack: Rulepack,
+    ner_service_url: str | None = None,
+    ner_scope: str = "head",
+) -> list[Detector]:
+    """Build the working-tree detector list.
+
+    ``ner_scope`` controls whether the (expensive) NER model is wired in at all:
+    ``"off"`` omits ``NERDetector`` entirely (the model never loads — no download,
+    fastest); ``"head"``/``"all"`` append it. WHERE the appended NER detector then
+    runs (working tree only vs. also history) is decided by the pipeline, not here.
+    """
     from repo_sanitizer.detectors.secrets import SecretsDetector
     from repo_sanitizer.detectors.regex_pii import RegexPIIDetector
     from repo_sanitizer.detectors.dictionary import DictionaryDetector
@@ -71,7 +82,8 @@ def build_detectors(rulepack: Rulepack, ner_service_url: str | None = None) -> l
         detectors.append(DictionaryDetector({"brands": brand_terms}, keep=keep))
     domain_list = rulepack.dictionaries.get("domains", [])
     detectors.append(EndpointDetector(domain_list, keep=keep))
-    detectors.append(NERDetector(rulepack.ner, service_url=ner_service_url, keep=keep))
+    if ner_scope != "off":
+        detectors.append(NERDetector(rulepack.ner, service_url=ner_service_url, keep=keep))
     return detectors
 
 

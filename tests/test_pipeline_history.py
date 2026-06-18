@@ -146,6 +146,29 @@ def test_author_identities_anonymized(tmp_path, history_repo_path):
 
 
 @requires_tools
+def test_commit_message_pii_scrubbed(tmp_path, history_repo_path):
+    """Commit-message emails are masked to @example.invalid across all commits."""
+    from repo_sanitizer.pipeline import run_sanitize
+
+    out_dir = tmp_path / "out"
+    run_sanitize(
+        source=str(history_repo_path),
+        out_dir=out_dir,
+        rulepack_path=RULES_DIR,
+        salt_env="REPO_SANITIZER_SALT",
+    )
+    work = out_dir / "work"
+    result = subprocess.run(
+        ["git", "log", "--all", "--format=%B"],
+        cwd=str(work),
+        capture_output=True,
+        text=True,
+    )
+    assert "john.doe@example.com" not in result.stdout
+    assert "@corp.com" not in result.stdout
+
+
+@requires_tools
 def test_bundle_valid_after_history_rewrite(tmp_path, history_repo_path):
     """sanitized.bundle should be cloneable and have full history."""
     from repo_sanitizer.pipeline import run_sanitize

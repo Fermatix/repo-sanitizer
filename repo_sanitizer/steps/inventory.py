@@ -124,6 +124,15 @@ def _decide_action(
     if has_allow_suffix:
         return FileAction.SCAN, "has allowed suffix"
 
+    # Denied binary EXTENSION (docx/xlsx/pdf/...) → DELETE regardless of category.
+    # Office docs get a non-octet-stream mime, so _classify labels them DOCS and
+    # the binary-category branch below is skipped — they'd then be scanned as
+    # garbage text and leak terms from their embedded XML. Check the extension up
+    # front so the deny list applies to office docs too.
+    ext_no_dot = ext.lstrip(".")
+    if ext_no_dot in rulepack.binary_deny_extensions:
+        return FileAction.DELETE, f"denied binary extension '{ext_no_dot}'"
+
     # Binary files
     if category == FileCategory.BINARY:
         ext_no_dot = ext.lstrip(".")
