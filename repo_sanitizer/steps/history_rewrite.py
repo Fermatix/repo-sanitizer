@@ -12,7 +12,10 @@ from pathlib import Path
 
 import repo_sanitizer
 from repo_sanitizer.context import RunContext
-from repo_sanitizer.detectors.secrets import build_gitleaks_config
+from repo_sanitizer.detectors.secrets import (
+    _read_gitleaks_report,
+    build_gitleaks_config,
+)
 from repo_sanitizer.rulepack import Rulepack
 
 logger = logging.getLogger(__name__)
@@ -100,10 +103,15 @@ def _gitleaks_secret_values(args: list[str], cwd: str, timeout: int = 600) -> tu
                     "--report-format", "json", "--report-path", report, "--no-banner"],
             capture_output=True, text=True, timeout=timeout, cwd=cwd,
         )
-        if not os.path.exists(report):
+        # Best-effort collection: a missing / empty / corrupt report means we
+        # collected nothing HERE (ok=False → caller logs and continues). It must
+        # NOT be reported as a successful empty result — the fail-closed
+        # post-rewrite gate (run_history_secret_gate) is the real backstop.
+        try:
+            items = _read_gitleaks_report(Path(report), context="history collection")
+        except RuntimeError:
             return [], False
-        raw = Path(report).read_text(encoding="utf-8") or "[]"
-        return [it.get("Secret", "") for it in json.loads(raw) if it.get("Secret")], True
+        return [it.get("Secret", "") for it in items if it.get("Secret")], True
 
 
 def _collect_secret_literals(ctx: RunContext) -> list[str]:
@@ -209,12 +217,12 @@ def run_history_secret_gate(ctx: RunContext) -> list:
                 )
             except FileNotFoundError as e:
                 raise RuntimeError("gitleaks not installed; cannot verify history secrets") from e
-            if not os.path.exists(report):
-                raise RuntimeError(
-                    f"post-rewrite gitleaks ({label}) produced no report (fatal error); "
-                    "refusing to certify history as secret-free"
-                )
-            return json.loads(Path(report).read_text(encoding="utf-8") or "[]")
+            # FAIL CLOSED on a missing / empty / corrupt report — never certify
+            # history secret-free from a report gitleaks did not fully write (an
+            # empty report read as "[]" would silently pass the shipping gate).
+            return _read_gitleaks_report(
+                Path(report), context=f"post-rewrite {label}"
+            )
 
     # (1) full-history blob content (native git mode → all commits/branches)
     items = list(_run(["gitleaks", "detect", "--source", work], work, "blobs"))

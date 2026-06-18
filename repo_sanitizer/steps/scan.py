@@ -119,6 +119,7 @@ def run_scan(
         BrandPathDetector,
         BrandStructuralDetector,
     )
+    from repo_sanitizer.detectors.secrets import SecretsDetector
 
     rulepack: Rulepack = ctx.rulepack
     ts_extractor = TreeSitterExtractor(rulepack.extractor)
@@ -141,6 +142,21 @@ def run_scan(
     # Stats: counts per extractor type for CODE files
     ts_files: list[str] = []
     fallback_files: list[str] = []
+
+    # Batch gitleaks: one scan over a neutral staging tree built from exactly the
+    # SCAN set, instead of a subprocess PER FILE (× convergence passes). A
+    # detector exposing prescan_tree caches its findings by path; its detect()
+    # then serves from the cache (per-file-equivalent — see prescan_tree). On
+    # failure we log and leave the cache unset → that detector falls back to
+    # per-file. Passing the SCAN-path list (not the raw tree) is what makes the
+    # batched scan match the per-file path exactly.
+    scan_paths = [i.path for i in ctx.inventory if i.action == FileAction.SCAN]
+    for d in detectors:
+        if hasattr(d, "prescan_tree"):
+            try:
+                d.prescan_tree(ctx.work_dir, scan_paths)
+            except Exception as e:
+                logger.warning("gitleaks tree prescan failed (per-file fallback): %s", e)
 
     for item in ctx.inventory:
         if item.action != FileAction.SCAN:
@@ -183,6 +199,13 @@ def run_scan(
                     f.compute_hash(ctx.salt)
                 all_findings.extend(findings)
             except Exception as e:
+                # FAIL CLOSED for secret detection: a SecretsDetector failure
+                # (gitleaks didn't complete → missing/empty/corrupt report) must
+                # NOT be swallowed, or the file ships unscanned for secrets.
+                # Abort the run so the operator fixes gitleaks and re-runs; other
+                # detectors keep the warn-and-continue behavior.
+                if isinstance(detector, SecretsDetector):
+                    raise
                 logger.warning(
                     "Detector %s failed on %s: %s",
                     type(detector).__name__,
