@@ -15,6 +15,46 @@ from repo_sanitizer.detectors.base import (
 )
 
 
+# Exact placeholder-mask shapes emitted by redaction/replacements.py and
+# redaction/history_ops.py (every hash is 12 hex; domain/endpoint masks 8 hex).
+# gitleaks would otherwise re-flag OUR OWN masks as high-entropy secrets, so the
+# post-scan + re-redact convergence loop would never settle. The regexes are
+# ANCHORED with \b and pinned to the exact hash length so a REAL secret that
+# merely contains such a substring is NOT suppressed (regexTarget="match").
+_MASK_ALLOWLIST_REGEXES = (
+    r"\bREDACTED_(?:EMAIL_|IP_|JWT_|URL_)?[0-9a-fA-F]{12}\b",
+    r"\bTERM_[0-9a-fA-F]{12}\b",
+    r"\bANON_(?:PER|ORG)_[0-9a-fA-F]{12}\b",
+    r"\bAuthor_[0-9a-fA-F]{12}\b",
+    r"\b(?:user|author)_[0-9a-fA-F]{12}@example\.invalid\b",
+    r"\b[0-9a-fA-F]{8}\.example\.invalid\b",
+)
+
+
+def build_gitleaks_config(allowlist_masks: bool = True) -> str:
+    """Return a gitleaks TOML config string.
+
+    Uses SINGLE-QUOTED TOML literal strings for the regexes so backslash regex
+    metacharacters (``\\.``, ``\\b``) are NOT interpreted as TOML escapes — a
+    double-quoted ``"\\."`` is INVALID TOML and makes gitleaks fail to load the
+    config (which, if the failure is swallowed, silently disables detection).
+    ``[extend] useDefault = true`` keeps every built-in rule; passing this via
+    ``--config`` also OVERRIDES any ``.gitleaks.toml`` shipped in the scanned
+    repo, so a partner repo cannot allowlist its own secrets past us.
+    """
+    lines = ["[extend]", "useDefault = true", ""]
+    if allowlist_masks:
+        lines += [
+            "[allowlist]",
+            'description = "repo-sanitizer placeholder masks"',
+            'regexTarget = "match"',
+            "regexes = [",
+        ]
+        lines += [f"  '{rx}'," for rx in _MASK_ALLOWLIST_REGEXES]
+        lines.append("]")
+    return "\n".join(lines) + "\n"
+
+
 class SecretsDetector(Detector):
     """Wrapper over gitleaks for secret detection."""
 
@@ -24,12 +64,54 @@ class SecretsDetector(Detector):
                 "gitleaks is not installed or not found in PATH. "
                 "Install it: https://github.com/gitleaks/gitleaks#installing"
             )
+        # Validate the self-mask config loads AND detection actually fires, ONCE,
+        # at construction. run_scan() swallows per-file detector exceptions, so a
+        # broken config caught only inside detect() would silently disable secret
+        # detection. Constructing happens in build_detectors (outside that
+        # try/except), so raising here fails the pipeline closed at startup.
+        self._validate()
+
+    def _validate(self) -> None:
+        # A high-entropy generic key reliably flagged by gitleaks (generic-api-key).
+        # NOT a provider-token shape (Slack/AWS/…) — those trip GitHub push
+        # protection when this source is committed.
+        probe = "api_key=Xb7Kp2Lm9Qr4Ts8Wv3Yz6Ac1Df5Gh0Jk\n"
+        with tempfile.TemporaryDirectory() as tmpdir, \
+                tempfile.TemporaryDirectory() as cfgdir:
+            (Path(tmpdir) / "probe.txt").write_text(probe, encoding="utf-8")
+            report_file = Path(tmpdir) / "report.json"
+            cfg_file = Path(cfgdir) / "gitleaks.toml"
+            cfg_file.write_text(build_gitleaks_config(allowlist_masks=True), encoding="utf-8")
+            result = subprocess.run(
+                ["gitleaks", "detect", "--no-git", "--source", tmpdir,
+                 "--config", str(cfg_file), "--ignore-gitleaks-allow",
+                 "--report-format", "json", "--report-path", str(report_file)],
+                capture_output=True, text=True,
+            )
+            if not report_file.exists():
+                raise RuntimeError(
+                    "gitleaks failed to load the self-mask config "
+                    f"(detection would be silently disabled): {result.stderr.strip()[:300]}"
+                )
+            try:
+                found = json.loads(report_file.read_text())
+            except json.JSONDecodeError:
+                found = []
+            if not found:
+                raise RuntimeError(
+                    "gitleaks did not detect the probe secret under the self-mask "
+                    "config — secret detection is broken; refusing to proceed."
+                )
 
     def detect(self, target: ScanTarget) -> list[Finding]:
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir, \
+                tempfile.TemporaryDirectory() as cfgdir:
             tmp_file = Path(tmpdir) / Path(target.file_path).name
             tmp_file.write_text(target.content, encoding="utf-8")
             report_file = Path(tmpdir) / "report.json"
+            # Config lives OUTSIDE the scanned source dir so it isn't itself scanned.
+            cfg_file = Path(cfgdir) / "gitleaks.toml"
+            cfg_file.write_text(build_gitleaks_config(allowlist_masks=True), encoding="utf-8")
 
             result = subprocess.run(
                 [
@@ -38,6 +120,10 @@ class SecretsDetector(Detector):
                     "--no-git",
                     "--source",
                     tmpdir,
+                    "--config",
+                    str(cfg_file),
+                    # Defeat partner `# gitleaks:allow` comments suppressing leaks.
+                    "--ignore-gitleaks-allow",
                     "--report-format",
                     "json",
                     "--report-path",
@@ -46,6 +132,15 @@ class SecretsDetector(Detector):
                 capture_output=True,
                 text=True,
             )
+
+            # FAIL CLOSED: gitleaks writes the report on success (even with 0 or N
+            # leaks). A MISSING report means a fatal error (bad config / install) —
+            # returning [] would silently disable secret detection. Raise instead.
+            if not report_file.exists():
+                raise RuntimeError(
+                    "gitleaks did not produce a report (fatal config/install error); "
+                    f"refusing to treat as 'no secrets'. stderr: {result.stderr.strip()[:300]}"
+                )
 
             findings = []
             if report_file.exists():

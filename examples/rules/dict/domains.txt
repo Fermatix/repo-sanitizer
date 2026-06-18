@@ -68,6 +68,10 @@ nas.lan
 backup.lan
 
 # ── Short bare hostnames (intranet DNS) ───────────────────────────
+# NOTE: these feed EndpointDetector only, which matches DOTTED domains
+# (jenkins.corp.internal) — a bare `jenkins`/`redis` no longer substring-matches
+# anywhere (that flood was removed when domains were split off the brand
+# DictionaryDetector). Kept for reference / as suffix roots.
 # CI / CD
 jenkins
 jenkins-master

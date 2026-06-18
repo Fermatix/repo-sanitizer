@@ -123,6 +123,85 @@ def test_parse_error_fallback(rulepack):
     assert any("another comment" in t for t in texts)
 
 
+# ── PHP via standalone grammar (ABI-safe capsule path) ───────────────────────
+
+def _php_grammar_available() -> bool:
+    try:
+        import tree_sitter_php  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+@pytest.mark.skipif(not _php_grammar_available(), reason="tree-sitter-php not installed")
+def test_php_extracted_via_standalone(ts_extractor):
+    # extract_zones returns a (possibly empty) list only when a tree-sitter parser
+    # was built; it returns None when the grammar is unavailable under
+    # on_parse_error=fallback. A non-None result therefore proves the standalone
+    # tree-sitter-php grammar loaded via the ABI-safe capsule path.
+    code = "<?php\n// secret comment\n$x = 'hello world';\n"
+    zones = ts_extractor.extract_zones("test.php", code)
+    assert zones is not None
+    texts = [code[z.start:z.end] for z in zones]
+    assert any("secret comment" in t for t in texts)
+    assert any("hello world" in t for t in texts)
+
+
+# ── ABI mismatch on the language-pack path degrades gracefully (B1) ───────────
+
+def _abi_mismatch_config(on_parse_error: str) -> ExtractorConfig:
+    """Config whose single language forces the language-pack fallback path."""
+    lang = ExtractorLanguage(
+        id="fakelang",
+        # No such module → importlib raises ImportError → _try_language_pack path.
+        grammar_package="tree-sitter-nonexistent-xyz",
+        file_extensions=[".fake"],
+        extract_zones=["comment_line"],
+    )
+    return ExtractorConfig(languages=[lang], on_parse_error=on_parse_error)
+
+
+def _patch_foreign_language(monkeypatch) -> None:
+    """Make the language-pack fallback return a foreign (non tree_sitter.Language)
+    object, simulating an ABI-mismatched build whose type is `builtins.Language`."""
+    import repo_sanitizer.extractors.treesitter as ts_mod
+    monkeypatch.setattr(ts_mod, "_try_language_pack", lambda lang_id: object())
+
+
+def test_abi_mismatch_fallback_does_not_raise(monkeypatch):
+    _patch_foreign_language(monkeypatch)
+    extractor = TreeSitterExtractor(_abi_mismatch_config("fallback"))
+    # Must NOT raise a TypeError out of extract_zones — degrade to fallback (None).
+    zones = extractor.extract_zones("x.fake", "// hi\ncode\n")
+    assert zones is None
+
+
+def test_abi_mismatch_skip_returns_empty(monkeypatch):
+    _patch_foreign_language(monkeypatch)
+    extractor = TreeSitterExtractor(_abi_mismatch_config("skip"))
+    zones = extractor.extract_zones("x.fake", "// hi\ncode\n")
+    assert zones == []
+
+
+def test_abi_mismatch_fail_raises_runtimeerror(monkeypatch):
+    _patch_foreign_language(monkeypatch)
+    extractor = TreeSitterExtractor(_abi_mismatch_config("fail"))
+    # on_parse_error=fail re-raises — and it must be a RuntimeError (the contract
+    # extract_zones catches), NOT the raw TypeError from Parser().
+    with pytest.raises(RuntimeError, match="ABI mismatch"):
+        extractor.extract_zones("x.fake", "// hi\ncode\n")
+
+
+def test_get_parser_converts_abi_typeerror_to_runtimeerror(monkeypatch):
+    """A foreign Language must surface as RuntimeError from _get_parser so
+    extract_zones' RuntimeError-only handler honors on_parse_error."""
+    _patch_foreign_language(monkeypatch)
+    extractor = TreeSitterExtractor(_abi_mismatch_config("fallback"))
+    lang = extractor.config.languages[0]
+    with pytest.raises(RuntimeError):
+        extractor._get_parser(lang)
+
+
 # ── Unknown extension → None (no zones, scan full file) ──────────────────────
 
 def test_unknown_extension_returns_none(ts_extractor):

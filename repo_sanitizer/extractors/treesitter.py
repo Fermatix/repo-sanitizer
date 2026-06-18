@@ -23,7 +23,10 @@ class GrammarStatus:
 
 # Some lang.id values don't match tree-sitter-language-pack identifiers.
 _LANGUAGE_PACK_ID_OVERRIDES: dict[str, str] = {
-    # add overrides here as mismatches are discovered
+    # extractors.yaml uses the standalone-package id "c_sharp"; the language
+    # pack registers C# as "csharp". Without this, C# falls back to the regex
+    # extractor (no string/comment zones, no brand-in-identifier detection).
+    "c_sharp": "csharp",
 }
 
 
@@ -736,6 +739,29 @@ NODE_TYPE_MAP = {
 }
 
 
+# Whole-statement node types for package / namespace / import declarations,
+# per language. Used by extract_identifier_zones (Change 4b) to categorize a
+# brand match as PACKAGE_NAMESPACE vs BRAND_IDENTIFIER. The exact node-type
+# strings were verified against live parses of tree-sitter-language-pack
+# grammars (not assumed). Languages whose imports are STRING literals
+# (go/python/js/ts module paths) still have their path strings covered by the
+# string-literal DictionaryDetector; here those statements are included so a
+# brand in a non-string import IDENTIFIER (e.g. a default import name) is
+# categorized too — the string parts are excluded as DictionaryDetector's job.
+PACKAGE_NODE_TYPES: dict[str, list[str]] = {
+    "java":       ["package_declaration", "import_declaration"],
+    "php":        ["namespace_definition", "namespace_use_declaration"],
+    "kotlin":     ["package_header", "import_header"],
+    "go":         ["package_clause", "import_declaration"],
+    "c_sharp":    ["namespace_declaration", "file_scoped_namespace_declaration",
+                   "using_directive"],
+    "python":     ["import_statement", "import_from_statement"],
+    "javascript": ["import_statement", "export_statement"],
+    "typescript": ["import_statement", "export_statement"],
+    "tsx":        ["import_statement", "export_statement"],
+}
+
+
 def _is_docstring(node, source_bytes: bytes) -> bool:
     if node.type != "string" and node.type != "expression_statement":
         return False
@@ -803,7 +829,38 @@ class TreeSitterExtractor:
                     f"is not available in tree-sitter-language-pack "
                     f"(pip install tree-sitter-language-pack)"
                 )
-        parser = tree_sitter.Parser(ts_language)
+        # The standalone-package path (above) wraps a PyCapsule with the locally
+        # installed tree_sitter, so ts_language is always THIS process's
+        # tree_sitter.Language. The language-pack fallback, however, returns a
+        # Language minted by its own bundled tree-sitter build; if that build's
+        # ABI diverges from the installed tree-sitter the object is a foreign
+        # `builtins.Language`, and tree_sitter.Parser(ts_language) raises a
+        # TypeError. That TypeError is not a RuntimeError, so it would escape
+        # extract_zones' RuntimeError-only handler and abort the whole scan
+        # instead of degrading to the regex fallback. Validate the type and
+        # guard construction, re-raising as RuntimeError so on_parse_error is
+        # honored and the operator gets an actionable message.
+        if not isinstance(ts_language, tree_sitter.Language):
+            ts_version = getattr(tree_sitter, "__version__", "unknown")
+            raise RuntimeError(
+                f"Grammar for '{lang.id}' produced a "
+                f"{type(ts_language).__module__}.{type(ts_language).__qualname__}, "
+                f"not this process's tree_sitter.Language — a tree-sitter ABI "
+                f"mismatch (commonly tree-sitter-language-pack built against a "
+                f"different tree-sitter than the installed {ts_version}). Reinstall "
+                f"matched grammars (e.g. `pip install --force-reinstall "
+                f"tree-sitter-language-pack`) or add the standalone grammar "
+                f"'{lang.grammar_package}'."
+            )
+        try:
+            parser = tree_sitter.Parser(ts_language)
+        except TypeError as e:
+            raise RuntimeError(
+                f"Failed to construct a tree-sitter Parser for '{lang.id}': {e}. "
+                f"Likely a tree-sitter ABI mismatch on the grammar object — reinstall "
+                f"'{lang.grammar_package}' / tree-sitter-language-pack against the "
+                f"installed tree-sitter."
+            ) from e
         self._parsers[lang.id] = (parser, ts_language, lang)
         return self._parsers[lang.id]
 
@@ -870,6 +927,54 @@ class TreeSitterExtractor:
         # findings. Normalize to character offsets once here so all consumers
         # agree. (The regex FallbackExtractor already emits char offsets.)
         return self._byte_zones_to_char(content, zones)
+
+    def extract_identifier_zones(
+        self, file_path: str, content: str
+    ) -> Optional[list[Zone]]:
+        """Return char-offset spans of package/namespace/import DECLARATIONS.
+
+        Used by the structural brand pass (4b) to categorize a code-region
+        brand match as PACKAGE_NAMESPACE vs BRAND_IDENTIFIER. Returns:
+
+        * a (possibly empty) list of spans when the file parses — empty either
+          because the language has no package-declaration node map or the file
+          has none; the caller still runs BRAND_IDENTIFIER detection over the
+          non-string code regions;
+        * ``None`` when there is no grammar for the file or it cannot be parsed
+          (the caller then skips the structural pass entirely).
+        """
+        lang = self.get_language_for_file(file_path)
+        if lang is None:
+            return None
+        wanted = PACKAGE_NODE_TYPES.get(lang.id)
+        if not wanted:
+            # No package map → no PACKAGE_NAMESPACE split needed, and a second
+            # parse would be wasted (BRAND_IDENTIFIER needs no package spans).
+            return []
+        try:
+            parser, _ts_language, _ = self._get_parser(lang)
+        except RuntimeError:
+            return None
+        source_bytes = content.encode("utf-8")
+        try:
+            tree = parser.parse(source_bytes)
+        except Exception:
+            return None
+
+        wanted_set = set(wanted)
+        spans: list[Zone] = []
+        stack = [tree.root_node]
+        while stack:
+            node = stack.pop()
+            if node.type in wanted_set:
+                spans.append(Zone(start=node.start_byte, end=node.end_byte))
+                continue  # prune: inner identifiers belong to this declaration
+            stack.extend(reversed(node.children))
+
+        spans = self._merge_zones(spans)
+        # tree-sitter emits BYTE offsets; normalize to character offsets to match
+        # every other consumer (same fix as extract_zones).
+        return self._byte_zones_to_char(content, spans)
 
     def _walk_tree(
         self,

@@ -7,11 +7,12 @@ from pathlib import Path
 from typing import Optional
 
 from repo_sanitizer.context import FileAction, RunContext
+from repo_sanitizer.detectors.ner import NERDetector
 from repo_sanitizer.rulepack import load_rulepack
 from repo_sanitizer.steps.fetch import fetch
 from repo_sanitizer.steps.gate import run_gate_check
 from repo_sanitizer.steps.history_blob_scan import build_history_detectors, run_history_blob_scan
-from repo_sanitizer.steps.history_rewrite import run_history_rewrite
+from repo_sanitizer.steps.history_rewrite import run_history_rewrite, run_history_secret_gate
 from repo_sanitizer.steps.history_scan import run_history_scan
 from repo_sanitizer.steps.inventory import run_inventory
 from repo_sanitizer.steps.package import run_package
@@ -30,11 +31,14 @@ def _finding_summary(findings: list) -> str:
     counts = Counter(f.category for f in findings)
     parts = []
     for cat, label in [
-        (Category.SECRET,     "secrets"),
-        (Category.PII,        "PII"),
-        (Category.ORG_NAME,   "org names"),
-        (Category.DICTIONARY, "dict"),
-        (Category.ENDPOINT,   "endpoints"),
+        (Category.SECRET,            "secrets"),
+        (Category.PII,               "PII"),
+        (Category.ORG_NAME,          "org names"),
+        (Category.DICTIONARY,        "dict"),
+        (Category.ENDPOINT,          "endpoints"),
+        (Category.BRAND_IDENTIFIER,  "brand idents"),
+        (Category.BRAND_PATH,        "brand paths"),
+        (Category.PACKAGE_NAMESPACE, "pkg/namespace"),
     ]:
         if counts[cat]:
             parts.append(f"{counts[cat]} {label}")
@@ -73,6 +77,7 @@ def _build_context(
     history_until: Optional[str],
     ner_device: Optional[str],
     ner_service_url: Optional[str],
+    ner_scope: str = "head",
 ) -> tuple[RunContext, object]:
     """Create RunContext and loaded Rulepack, applying CLI overrides."""
     ctx = RunContext.create(
@@ -85,6 +90,7 @@ def _build_context(
         history_since=history_since,
         history_until=history_until,
         ner_service_url=ner_service_url,
+        ner_scope=ner_scope,
     )
     rulepack = load_rulepack(ctx.rulepack_path)
     ctx.rulepack = rulepack
@@ -108,6 +114,7 @@ def run_sanitize(
     history_until: Optional[str] = None,
     ner_device: Optional[str] = None,
     ner_service_url: Optional[str] = None,
+    ner_scope: str = "head",
 ) -> int:
     """Run the full sanitize pipeline. Returns exit code (0=pass, 1=fail)."""
     if ner_service_url:
@@ -115,7 +122,7 @@ def run_sanitize(
 
     ctx, rulepack = _build_context(
         source, out_dir, rulepack_path, salt_env, rev, max_file_mb,
-        history_since, history_until, ner_device, ner_service_url,
+        history_since, history_until, ner_device, ner_service_url, ner_scope,
     )
 
     history_detectors = build_history_detectors(rulepack)
@@ -137,7 +144,16 @@ def run_sanitize(
     logger.info("Inventory: %d files — %d to scan, %d to delete, %d skipped", len(ctx.inventory), scan_n, del_n, skip_n)
 
     # Step 3: Pre-scan (working tree at --rev)
-    detectors = build_detectors(rulepack, ner_service_url=ctx.ner_service_url)
+    detectors = build_detectors(
+        rulepack, ner_service_url=ctx.ner_service_url, ner_scope=ctx.ner_scope
+    )
+    ner_detector = next((d for d in detectors if isinstance(d, NERDetector)), None)
+    # NER over history (commit metadata + every blob) is the expensive 15-40h path;
+    # run it ONLY under --ner-scope all. Default "head" scans NER on the working tree
+    # only; "off" has no NER detector at all. Commit-metadata authors are blanket
+    # anonymized regardless, so metadata-NER adds little outside "all".
+    metadata_detectors = detectors if ctx.ner_scope == "all" else history_detectors
+    history_ner = ner_detector if ctx.ner_scope == "all" else None
     logger.info("Scanning working tree (%d files)...", scan_n)
     t0 = time.perf_counter()
     ctx.pre_findings = run_scan(ctx, detectors, "scan_report_pre.json")
@@ -162,11 +178,20 @@ def run_sanitize(
     ctx.post_findings = run_scan(ctx, detectors, "scan_report_post.json")
     ctx.timings["steps"]["scan_post"] = round(time.perf_counter() - t0, 3)
 
+    # Step 5b: Converge gitleaks/regex cascades. Masking the first high-entropy
+    # token often makes a NEW one the top match on re-scan; re-redact residuals
+    # (working tree) until stable (≤3 passes). Brand worklist findings are
+    # detection-only — they never redact, so exclude them from the convergence
+    # signal or the loop would spin on them forever.
+    t0 = time.perf_counter()
+    _converge_redaction(ctx, detectors, max_passes=3)
+    ctx.timings["steps"]["redact_converge"] = round(time.perf_counter() - t0, 3)
+
     # Step 6: History pre-scan — commit metadata (all branches)
     logger.info("Scanning history (commit metadata)...")
     t0 = time.perf_counter()
     ctx.history_pre_findings = run_history_scan(
-        ctx, detectors, "history_scan_pre.json"
+        ctx, metadata_detectors, "history_scan_pre.json"
     )
     elapsed = time.perf_counter() - t0
     ctx.timings["steps"]["history_scan_pre"] = round(elapsed, 3)
@@ -176,7 +201,7 @@ def run_sanitize(
     logger.info("Scanning history (file blobs)...")
     t0 = time.perf_counter()
     ctx.history_blob_pre_findings = run_history_blob_scan(
-        ctx, history_detectors, "history_blob_scan_pre.json"
+        ctx, history_detectors, "history_blob_scan_pre.json", ner_detector=history_ner
     )
     elapsed = time.perf_counter() - t0
     ctx.timings["steps"]["history_blob_scan_pre"] = round(elapsed, 3)
@@ -193,14 +218,25 @@ def run_sanitize(
     # Step 8 + 8b: History post-scans (verification — silent)
     t0 = time.perf_counter()
     ctx.history_post_findings = run_history_scan(
-        ctx, detectors, "history_scan_post.json"
+        ctx, metadata_detectors, "history_scan_post.json"
     )
     ctx.timings["steps"]["history_scan_post"] = round(time.perf_counter() - t0, 3)
     t0 = time.perf_counter()
     ctx.history_blob_post_findings = run_history_blob_scan(
-        ctx, history_detectors, "history_blob_scan_post.json"
+        ctx, history_detectors, "history_blob_scan_post.json", ner_detector=history_ner
     )
     ctx.timings["steps"]["history_blob_scan_post"] = round(time.perf_counter() - t0, 3)
+
+    # Step 8c: FAIL-CLOSED full-history secret gate over the REWRITTEN repo.
+    # Backstops every way secret-literal collection could miss a value
+    # (message-only, <5 chars, repo-config-allowlisted, non-utf8, gitleaks FN on
+    # the pre-rewrite shape). Any survivor is a SECRET finding → SECRETS gate red.
+    t0 = time.perf_counter()
+    secret_survivors = run_history_secret_gate(ctx)
+    if secret_survivors:
+        logger.warning("Post-rewrite history secret gate: %d secret(s) survive in history", len(secret_survivors))
+    ctx.history_blob_post_findings = ctx.history_blob_post_findings + secret_survivors
+    ctx.timings["steps"]["history_secret_gate"] = round(time.perf_counter() - t0, 3)
 
     # Step 9: Gate check
     t0 = time.perf_counter()
@@ -251,6 +287,7 @@ def run_scan_only(
     history_until: Optional[str] = None,
     ner_device: Optional[str] = None,
     ner_service_url: Optional[str] = None,
+    ner_scope: str = "head",
 ) -> int:
     """Run scan-only pipeline (no redaction). Covers working tree + all history."""
     if ner_service_url:
@@ -258,7 +295,7 @@ def run_scan_only(
 
     ctx, rulepack = _build_context(
         source, out_dir, rulepack_path, salt_env, rev, max_file_mb,
-        history_since, history_until, ner_device, ner_service_url,
+        history_since, history_until, ner_device, ner_service_url, ner_scope,
     )
 
     history_detectors = build_history_detectors(rulepack)
@@ -278,7 +315,12 @@ def run_scan_only(
     logger.info("Inventory: %d files (%d to scan)", len(ctx.inventory), scan_n)
 
     # Step 3: Pre-scan (working tree)
-    detectors = build_detectors(rulepack, ner_service_url=ctx.ner_service_url)
+    detectors = build_detectors(
+        rulepack, ner_service_url=ctx.ner_service_url, ner_scope=ctx.ner_scope
+    )
+    ner_detector = next((d for d in detectors if isinstance(d, NERDetector)), None)
+    metadata_detectors = detectors if ctx.ner_scope == "all" else history_detectors
+    history_ner = ner_detector if ctx.ner_scope == "all" else None
     logger.info("Scanning working tree (%d files)...", scan_n)
     t0 = time.perf_counter()
     ctx.pre_findings = run_scan(ctx, detectors, "scan_report_pre.json")
@@ -290,7 +332,7 @@ def run_scan_only(
     logger.info("Scanning history (commit metadata)...")
     t0 = time.perf_counter()
     ctx.history_pre_findings = run_history_scan(
-        ctx, detectors, "history_scan_pre.json"
+        ctx, metadata_detectors, "history_scan_pre.json"
     )
     elapsed = time.perf_counter() - t0
     ctx.timings["steps"]["history_scan_pre"] = round(elapsed, 3)
@@ -300,7 +342,7 @@ def run_scan_only(
     logger.info("Scanning history (file blobs)...")
     t0 = time.perf_counter()
     ctx.history_blob_pre_findings = run_history_blob_scan(
-        ctx, history_detectors, "history_blob_scan_pre.json"
+        ctx, history_detectors, "history_blob_scan_pre.json", ner_detector=history_ner
     )
     elapsed = time.perf_counter() - t0
     ctx.timings["steps"]["history_blob_scan_pre"] = round(elapsed, 3)
@@ -313,6 +355,107 @@ def run_scan_only(
     logger.info("Scan complete: %s (%.1fs)", _finding_summary(all_findings), ctx.timings["total_s"])
 
     return 0 if not all_findings else 1
+
+
+def run_apply_map(
+    source: str,
+    out_dir: Path,
+    brand_map_path: Path,
+    salt_env: str = "REPO_SANITIZER_SALT",
+    rev: str = "HEAD",
+) -> int:
+    """Pass-3: apply a Pass-2 tiered brand map across ALL history, then bundle.
+
+    ``source`` is the Pass-1 output (its ``work`` dir or ``sanitized.bundle``);
+    the brand map is the ``{pattern, replacement, is_regex, preserve_case}`` file
+    Pass-2 produced. One git-filter-repo pass rewrites every blob, commit message,
+    and path segment, then a fresh bundle is written. The mandatory Pass-2
+    codex/agent audit still runs after this — apply-map is mechanical, not a gate.
+    """
+    from repo_sanitizer.redaction.history_ops import load_brand_map
+    from repo_sanitizer.steps.history_rewrite import run_brand_map_rewrite, verify_brand_map_applied
+
+    rows = load_brand_map(brand_map_path)
+    if not rows:
+        logger.warning("Brand map %s has no usable rules — nothing to apply.", brand_map_path)
+        return 1
+
+    ctx = RunContext.create(
+        source=source,
+        out_dir=out_dir,
+        rulepack_path=Path(brand_map_path).resolve(),  # placeholder; rulepack is not loaded
+        salt_env=salt_env,
+        rev=rev,
+    )
+
+    t_total = time.perf_counter()
+    fetch(ctx, source)
+    logger.info("Applying brand map (%d rules) across all history...", len(rows))
+    run_brand_map_rewrite(ctx, rows)
+
+    # Verify the map FULLY applied (a surviving pattern = a blob/path the rewrite
+    # could not decode/rewrite). Does NOT certify brand-completeness — a brand the
+    # map never listed is the mandatory Pass-2 codex/agent audit's job.
+    survivors = verify_brand_map_applied(ctx, rows)
+    run_package(ctx)
+    elapsed = time.perf_counter() - t_total
+    bundle = ctx.out_dir / "output" / "sanitized.bundle"
+    if survivors:
+        logger.error(
+            "apply-map: %d brand-map pattern(s) STILL MATCH after rewrite (incomplete "
+            "application): %s%s",
+            len(survivors),
+            ", ".join(survivors[:10]),
+            " …" if len(survivors) > 10 else "",
+        )
+        logger.error("Bundle written to %s but apply-map FAILED verification (exit 1).", bundle)
+        return 1
+    logger.info("apply-map complete (%.1fs) → %s", elapsed, bundle)
+    return 0
+
+
+def _converge_redaction(ctx: RunContext, detectors: list, max_passes: int = 3) -> None:
+    """Re-redact working-tree residuals until the scan stabilizes (≤max_passes).
+
+    Masking the first high-entropy token can promote a NEW substring to gitleaks'
+    top match on the next scan; a single redact pass then leaves residuals that
+    fail the gate. Loop redact→inventory→scan until the *redactable* finding count
+    stops decreasing. Brand findings are detection-only (never redacted, gated as
+    the Pass-2 worklist) — they are excluded from the convergence signal so the
+    loop does not spin on them. ``ctx.post_findings`` is left as the final scan
+    (brands included) for the gate; the manifest accumulates across all passes.
+    """
+    from repo_sanitizer.detectors.base import is_detection_only
+
+    def _redactable(findings: list) -> list:
+        return [f for f in findings if not is_detection_only(f)]
+
+    accumulated = list(ctx.redaction_manifest)  # Step-4 redactions, preserved
+    prev_fp: frozenset | None = None
+    for _pass in range(max_passes):
+        residual = _redactable(ctx.post_findings)
+        if not residual:
+            break
+        # Fingerprint by identity, not count: a gitleaks cascade can ROTATE one
+        # secret into another (same count, different value) — counting would stop
+        # early and leave the newly surfaced secret. Stop only when the exact set
+        # of residual findings repeats (irreducible) or empties.
+        fp = frozenset((f.file_path, f.value_hash) for f in residual)
+        if fp == prev_fp:
+            break
+        prev_fp = fp
+        run_redact(ctx, residual)
+        accumulated.extend(ctx.redaction_manifest)  # run_redact overwrites; merge
+        run_inventory(ctx)
+        ctx.post_findings = run_scan(ctx, detectors, "scan_report_post.json")
+
+    ctx.redaction_manifest = accumulated
+    (ctx.artifacts_dir / "redaction_manifest.json").write_text(
+        json.dumps(accumulated, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    resid = _redactable(ctx.post_findings)
+    if resid:
+        logger.info("Post-scan residual after convergence: %s", _finding_summary(resid))
 
 
 def _patch_result_json(ctx: RunContext) -> None:

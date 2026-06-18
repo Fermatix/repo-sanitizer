@@ -103,6 +103,13 @@ def sanitize(
         help="URL of a running NER service (e.g. http://localhost:8765). "
              "Skips local model loading; multiple runs can share one service."
     ),
+    ner_scope: str = typer.Option(
+        "head", "--ner-scope",
+        help="Where NER runs: head (working tree only — default, fast) | "
+             "all (also commit metadata + every history blob — slow; NER-only "
+             "names found in history are reported as a gate worklist, not "
+             "auto-rewritten, like brands) | off (never load NER — fastest)."
+    ),
 ) -> None:
     """Sanitize a Git repository: scan, redact, rewrite history, and package."""
     _setup_logging()
@@ -120,6 +127,7 @@ def sanitize(
             history_until=history_until,
             ner_device=ner_device,
             ner_service_url=ner_service_url,
+            ner_scope=ner_scope,
         )
     except Exception as e:
         logging.getLogger(__name__).error("Fatal error: %s", e)
@@ -148,6 +156,12 @@ def scan(
         help="URL of a running NER service (e.g. http://localhost:8765). "
              "Skips local model loading; multiple runs can share one service."
     ),
+    ner_scope: str = typer.Option(
+        "head", "--ner-scope",
+        help="Where NER runs: head (working tree only — default, fast) | "
+             "all (also commit metadata + every history blob — slow) | "
+             "off (never load NER at all — fastest)."
+    ),
 ) -> None:
     """Scan a Git repository for PII, secrets, and sensitive data (read-only)."""
     _setup_logging()
@@ -165,6 +179,53 @@ def scan(
             history_until=history_until,
             ner_device=ner_device,
             ner_service_url=ner_service_url,
+            ner_scope=ner_scope,
+        )
+    except Exception as e:
+        logging.getLogger(__name__).error("Fatal error: %s", e)
+        raise typer.Exit(code=1)
+    raise typer.Exit(code=exit_code)
+
+
+@app.command("apply-map")
+def apply_map(
+    source: str = typer.Argument(
+        ..., help="Pass-1 output to finalize: its work/ dir or sanitized.bundle (or a Git URL)"
+    ),
+    brand_map: Path = typer.Option(
+        ..., "--brand-map",
+        help="Pass-2 tiered brand map (JSON or CSV): rows of "
+             "{pattern, replacement, is_regex, preserve_case}."
+    ),
+    out: Path = typer.Option(..., "--out", help="Output directory"),
+    rev: str = typer.Option("HEAD", "--rev", help="Git revision to checkout"),
+    salt_env: str = typer.Option(
+        "REPO_SANITIZER_SALT", "--salt-env",
+        help="Env variable with the salt (required by the framework; UNUSED by "
+             "apply-map — brand replacements come from the map, not salted hashes)"
+    ),
+) -> None:
+    """Pass-3: apply the Pass-2 brand map across ALL git history, then re-bundle.
+
+    One git-filter-repo pass substitutes the mapped brands in every blob, commit
+    message, and path segment (paths renamed coherently with content). Run this
+    AFTER Pass-1 sanitize + the Pass-2 brand-map generation; the mandatory
+    codex/agent audit still follows.
+    """
+    _setup_logging()
+    from repo_sanitizer.pipeline import run_apply_map
+
+    if not brand_map.exists():
+        logging.getLogger(__name__).error("Brand map not found: %s", brand_map)
+        raise typer.Exit(code=1)
+
+    try:
+        exit_code = run_apply_map(
+            source=source,
+            out_dir=out,
+            brand_map_path=brand_map,
+            salt_env=salt_env,
+            rev=rev,
         )
     except Exception as e:
         logging.getLogger(__name__).error("Fatal error: %s", e)
@@ -249,6 +310,45 @@ def install_grammars(
 
     typer.echo("\nDone. Re-run to verify:")
     typer.echo(f"  repo-sanitizer install-grammars --rulepack {rulepack}")
+
+
+@app.command("expand-variants")
+def expand_variants(
+    input_file: Path = typer.Argument(
+        ..., help="Text file with one brand term per line (# comments allowed)"
+    ),
+    output_file: Optional[Path] = typer.Argument(
+        None, help="Write expanded terms here (default: stdout)"
+    ),
+) -> None:
+    """Expand brand terms to all separator / Cyrillic / mojibake variants.
+
+    The dictionary/brand matchers are case-insensitive, so case variants are
+    redundant; this materializes the forms case-folding does not cover. Useful
+    to inspect what a brand token will match, or to pre-bake a dictionary file.
+    """
+    _setup_logging()
+    from repo_sanitizer.variants import expand_term
+
+    if not input_file.exists():
+        logging.getLogger(__name__).error("Input file not found: %s", input_file)
+        raise typer.Exit(code=1)
+
+    terms = [
+        line.strip()
+        for line in input_file.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    expanded: set[str] = set()
+    for term in terms:
+        expanded |= expand_term(term)
+
+    body = "\n".join(sorted(expanded))
+    if output_file is not None:
+        output_file.write_text(body + "\n", encoding="utf-8")
+        typer.echo(f"Wrote {len(expanded)} variants from {len(terms)} terms → {output_file}")
+    else:
+        typer.echo(body)
 
 
 @app.command("ner-service")

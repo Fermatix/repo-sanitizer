@@ -34,6 +34,22 @@ GLINER_LABEL_MAP = {
 # Reverse: descriptive label → code
 _GLINER_LABEL_REVERSE = {v: k for k, v in GLINER_LABEL_MAP.items()}
 
+# Unambiguous legal-form / corporate suffix tokens ONLY. A multi-word ORG is
+# kept only when, after stripping these, every remaining (brandish) token is on
+# the keep-list — so "Google LLC" is exempt while "Apple Bank" / "Apple
+# Logistics LLC" (distinct companies that merely share the token "apple") are
+# NOT and still gate. Deliberately excludes meaningful nouns like
+# bank/cloud/pay/labs/group that distinguish a company ("Yandex Cloud" / "Apple
+# Pay" therefore reach the worklist — safe-direction noise that Pass-2 dismisses,
+# preferable to dropping a distinct "Apple Bank").
+_GENERIC_ORG_TOKENS = frozenset(
+    {
+        "llc", "inc", "ltd", "limited", "corp", "corporation", "co", "company",
+        "gmbh", "sa", "ag", "plc", "pte", "pty", "oy", "bv", "nv", "as",
+        "spa", "srl", "ооо", "зао", "пао", "ао", "ип",
+    }
+)
+
 
 class NERDetector(Detector):
     """Detect person and organization names using a transformer NER model.
@@ -43,9 +59,15 @@ class NERDetector(Detector):
     being loaded into every worker process.
     """
 
-    def __init__(self, config: NERConfig, service_url: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        config: NERConfig,
+        service_url: Optional[str] = None,
+        keep: Optional[set[str]] = None,
+    ) -> None:
         self.config = config
         self.service_url = service_url  # if set, use HTTP mode (batch)
+        self.keep = keep or set()  # lowercased terms to never flag (kept brands)
         self._pipeline = None
         self._gliner = None
 
@@ -242,6 +264,8 @@ class NERDetector(Detector):
                 word = entity.get("word", "").strip()
                 if len(word) < 3:
                     continue
+                if self._is_kept_org(word.lower()):
+                    continue
                 start = base_offset + chunk_offset + entity["start"]
                 end = base_offset + chunk_offset + entity["end"]
                 category, severity = LABEL_MAP[label]
@@ -306,6 +330,103 @@ class NERDetector(Detector):
             chunk_text = "\n".join(current_lines)
             chunks.append((current_start, chunk_text))
         return chunks
+
+    def _is_kept_org(self, word_lower: str) -> bool:
+        """True if this entity is a kept brand and should not be flagged.
+
+        Exact whole-entity match, or a multi-word entity whose only non-generic
+        tokens are all kept (so "Google LLC"/"Yandex Cloud" are kept but a
+        distinct "Apple Logistics LLC" is not). A bare unknown word is never
+        kept just for sharing a token with a kept brand.
+        """
+        if not self.keep:
+            return False
+        if word_lower in self.keep:
+            return True
+        tokens = word_lower.split()
+        if len(tokens) < 2:
+            return False
+        brandish = [t for t in tokens if t not in _GENERIC_ORG_TOKENS]
+        return bool(brandish) and all(t in self.keep for t in brandish)
+
+    def detect_batch(self, targets: list[ScanTarget]) -> list[Finding]:
+        """Run NER over many targets in a single batched inference call.
+
+        All text chunks from all targets are flattened into one list, sent to
+        the model (or HTTP service) in one request, then mapped back to
+        per-target Findings.  Use this instead of calling detect() in a tight
+        loop when per-call model-invocation overhead dominates (e.g. scanning
+        thousands of history blobs).
+        """
+        if not targets:
+            return []
+        if not self.service_url:
+            if self.config.backend == "gliner":
+                self._ensure_gliner()
+            else:
+                self._ensure_pipeline()
+
+        # Build a flat chunk list that records which target each chunk came from.
+        chunk_meta: list[tuple[int, int]] = []  # (target_idx, base_offset)
+        chunk_texts: list[str] = []
+        for t_idx, target in enumerate(targets):
+            if target.is_zoned:
+                for zone in target.zones:
+                    text = target.content[zone.start : zone.end]
+                    if not text.strip():
+                        continue
+                    for c_offset, c_text in self._chunk_text(text):
+                        chunk_meta.append((t_idx, zone.start + c_offset))
+                        chunk_texts.append(c_text)
+            else:
+                if not target.content.strip():
+                    continue
+                for c_offset, c_text in self._chunk_text(target.content):
+                    chunk_meta.append((t_idx, c_offset))
+                    chunk_texts.append(c_text)
+
+        if not chunk_texts:
+            return []
+
+        try:
+            batch_results = self._infer_batch(chunk_texts)
+        except Exception as e:
+            logger.warning("NER batch inference error: %s", e)
+            return []
+
+        raw: dict[int, list[Finding]] = {}
+        for (t_idx, base_offset), entities in zip(chunk_meta, batch_results):
+            target = targets[t_idx]
+            for entity in entities:
+                label = entity.get("entity_group", "")
+                if label not in self.config.entity_types or label not in LABEL_MAP:
+                    continue
+                if entity.get("score", 0) < self.config.min_score:
+                    continue
+                word = entity.get("word", "").strip()
+                if len(word) < 3 or self._is_kept_org(word.lower()):
+                    continue
+                start = base_offset + entity["start"]
+                end = base_offset + entity["end"]
+                category, severity = LABEL_MAP[label]
+                line = target.content[: base_offset + entity["start"]].count("\n") + 1
+                raw.setdefault(t_idx, []).append(
+                    Finding(
+                        detector="NERDetector",
+                        category=category,
+                        severity=severity,
+                        file_path=target.file_path,
+                        line=line,
+                        offset_start=start,
+                        offset_end=end,
+                        matched_value=word,
+                    )
+                )
+
+        all_findings: list[Finding] = []
+        for t_idx in sorted(raw):
+            all_findings.extend(self._deduplicate(raw[t_idx]))
+        return all_findings
 
     @staticmethod
     def _deduplicate(findings: list[Finding]) -> list[Finding]:

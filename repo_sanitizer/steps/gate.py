@@ -26,8 +26,26 @@ GATE_DEFINITIONS = {
         "check": lambda f: f.category == Category.DICTIONARY,
     },
     "ENDPOINTS": {
-        "description": "No internal domains/IPs remain",
+        "description": "No internal domains/public IPs remain",
         "check": lambda f: f.category == Category.ENDPOINT,
+    },
+    # Brand worklist gates (Pass-1 detection-only → intentionally RED until the
+    # Pass-2 coherent brand → AcmeN rename + re-scan drives them to zero).
+    "ORG_NAME": {
+        "description": "No organization-name (brand) findings remain — Pass-2 worklist",
+        "check": lambda f: f.category == Category.ORG_NAME,
+    },
+    "BRAND_IDENTIFIER": {
+        "description": "No brands surviving in code identifiers — Pass-2 worklist",
+        "check": lambda f: f.category == Category.BRAND_IDENTIFIER,
+    },
+    "BRAND_PATH": {
+        "description": "No brands surviving in file/dir path names — Pass-2 worklist",
+        "check": lambda f: f.category == Category.BRAND_PATH,
+    },
+    "PACKAGE_NAMESPACE": {
+        "description": "No brands surviving in package/namespace/import declarations — Pass-2 worklist",
+        "check": lambda f: f.category == Category.PACKAGE_NAMESPACE,
     },
 }
 

@@ -15,22 +15,75 @@ from repo_sanitizer.rulepack import Rulepack
 logger = logging.getLogger(__name__)
 
 
-def build_detectors(rulepack: Rulepack, ner_service_url: str | None = None) -> list[Detector]:
+# Dictionary keys that are NOT brand terms: the keep-list (allowlist) and the
+# domains list (fed to EndpointDetector only — feeding bare hostnames like
+# `mail`/`admin`/`jira` to the brand matcher floods it with substring matches).
+_NON_BRAND_DICTS = ("keep", "domains")
+
+
+def build_brand_terms(rulepack: Rulepack) -> tuple[list[str], set[str]]:
+    """Return (variant-expanded brand terms, lowercased keep-set).
+
+    The brand terms are every dictionary EXCEPT `keep` and `domains`, each run
+    through variant expansion (separator / Cyrillic / mojibake forms), deduped,
+    with any term that is itself on the keep-list dropped. Single source of
+    truth shared by the literal DictionaryDetector and the structural
+    path/identifier brand passes.
+    """
+    from repo_sanitizer.variants import expand_term
+
+    # Variant-expand the keep-list too, so a kept term's Cyrillic / mojibake /
+    # separator forms are also exempt (and so they win over a brand dictionary
+    # that lists the same term in another script).
+    keep: set[str] = set()
+    for term in rulepack.dictionaries.get("keep", []):
+        for variant in expand_term(term):
+            keep.add(variant.lower())
+    out: list[str] = []
+    seen: set[str] = set()
+    for name, terms in rulepack.dictionaries.items():
+        if name in _NON_BRAND_DICTS:
+            continue
+        for term in terms:
+            for variant in expand_term(term):
+                key = variant.lower()
+                if not key or key in keep or key in seen:
+                    continue
+                seen.add(key)
+                out.append(variant)
+    return out, keep
+
+
+def build_detectors(
+    rulepack: Rulepack,
+    ner_service_url: str | None = None,
+    ner_scope: str = "head",
+) -> list[Detector]:
+    """Build the working-tree detector list.
+
+    ``ner_scope`` controls whether the (expensive) NER model is wired in at all:
+    ``"off"`` omits ``NERDetector`` entirely (the model never loads — no download,
+    fastest); ``"head"``/``"all"`` append it. WHERE the appended NER detector then
+    runs (working tree only vs. also history) is decided by the pipeline, not here.
+    """
     from repo_sanitizer.detectors.secrets import SecretsDetector
     from repo_sanitizer.detectors.regex_pii import RegexPIIDetector
     from repo_sanitizer.detectors.dictionary import DictionaryDetector
     from repo_sanitizer.detectors.endpoint import EndpointDetector
     from repo_sanitizer.detectors.ner import NERDetector
 
+    brand_terms, keep = build_brand_terms(rulepack)
+
     detectors: list[Detector] = []
     detectors.append(SecretsDetector())
     if rulepack.pii_patterns:
         detectors.append(RegexPIIDetector(rulepack.pii_patterns))
-    if any(v for v in rulepack.dictionaries.values()):
-        detectors.append(DictionaryDetector(rulepack.dictionaries))
+    if brand_terms:
+        detectors.append(DictionaryDetector({"brands": brand_terms}, keep=keep))
     domain_list = rulepack.dictionaries.get("domains", [])
-    detectors.append(EndpointDetector(domain_list))
-    detectors.append(NERDetector(rulepack.ner, service_url=ner_service_url))
+    detectors.append(EndpointDetector(domain_list, keep=keep))
+    if ner_scope != "off":
+        detectors.append(NERDetector(rulepack.ner, service_url=ner_service_url, keep=keep))
     return detectors
 
 
@@ -61,14 +114,30 @@ def run_scan(
     detectors: list[Detector],
     report_name: str = "scan_report_pre.json",
 ) -> list[Finding]:
+    from repo_sanitizer.detectors.brand_structural import (
+        BrandMatcher,
+        BrandPathDetector,
+        BrandStructuralDetector,
+    )
+
     rulepack: Rulepack = ctx.rulepack
     ts_extractor = TreeSitterExtractor(rulepack.extractor)
     fb_extractor = FallbackExtractor(rulepack.extractor.fallback_comment_patterns)
 
     _warn_missing_grammars(rulepack)
 
+    # Structural brand passes (detection-only; gated, never rewritten — Pass-2
+    # owns the coherent rename). Share one automaton built from the same
+    # variant-expanded, keep-filtered brand terms as the literal DictionaryDetector.
+    brand_terms, keep = build_brand_terms(rulepack)
+    brand_matcher = BrandMatcher(brand_terms, keep)
+    path_detector = BrandPathDetector(brand_matcher)
+    struct_detector = BrandStructuralDetector(brand_matcher)
+
     all_findings: list[Finding] = []
     detector_times: dict[str, float] = {type(d).__name__: 0.0 for d in detectors}
+    detector_times.setdefault("BrandStructuralDetector", 0.0)
+    detector_times.setdefault("BrandPathDetector", 0.0)
     # Stats: counts per extractor type for CODE files
     ts_files: list[str] = []
     fallback_files: list[str] = []
@@ -122,6 +191,51 @@ def run_scan(
                 )
             finally:
                 detector_times[type(detector).__name__] += time.perf_counter() - t0
+
+        # Structural brand pass (4b): brands in code identifiers / package
+        # declarations. Only over TREE-SITTER zones (real string/comment zones
+        # available to exclude — never over the regex fallback, which would
+        # miscategorize brands inside string literals). Under the default
+        # on_parse_error=fallback a missing grammar yields the regex fallback
+        # (used_fallback True) and is skipped here; the scan logs a "grammar
+        # packages are not installed" warning — install them
+        # (repo-sanitizer install-grammars) for full brand-in-identifier coverage.
+        if (
+            brand_matcher.has_terms
+            and item.category == FileCategory.CODE
+            and zones is not None
+            and not used_fallback
+        ):
+            t0 = time.perf_counter()
+            try:
+                package_spans = ts_extractor.extract_identifier_zones(item.path, content)
+                # None = second parse failed / no grammar. Normally unreachable
+                # under on_parse_error=fallback (the first parse already
+                # succeeded), but REACHABLE under on_parse_error=skip, where a
+                # parse failure makes extract_zones return [] (so zones is not
+                # None and used_fallback stays False). The guard is load-bearing
+                # either way — do not remove it.
+                if package_spans is not None:
+                    struct_findings = struct_detector.detect(
+                        item.path, content, zones, package_spans
+                    )
+                    for f in struct_findings:
+                        f.compute_hash(ctx.salt)
+                    all_findings.extend(struct_findings)
+            except Exception as e:
+                logger.warning("BrandStructuralDetector failed on %s: %s", item.path, e)
+            finally:
+                detector_times["BrandStructuralDetector"] += time.perf_counter() - t0
+
+    # Path brand pass (4a): brands in file/dir names. Over EVERY inventory item
+    # (a brand directory leaks regardless of the file's SCAN/DELETE/SKIP action).
+    if brand_matcher.has_terms:
+        t0 = time.perf_counter()
+        path_findings = path_detector.detect_inventory(ctx.inventory)
+        for f in path_findings:
+            f.compute_hash(ctx.salt)
+        all_findings.extend(path_findings)
+        detector_times["BrandPathDetector"] += time.perf_counter() - t0
 
     _log_extractor_summary(ts_files, fallback_files)
     scan_key = report_name.removesuffix(".json")

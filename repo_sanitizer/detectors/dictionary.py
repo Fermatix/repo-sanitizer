@@ -12,9 +12,19 @@ from repo_sanitizer.detectors.base import (
 
 
 class DictionaryDetector(Detector):
-    """Detect corporate dictionary terms using Aho-Corasick."""
+    """Detect corporate dictionary terms using Aho-Corasick.
 
-    def __init__(self, dictionaries: dict[str, list[str]]) -> None:
+    ``keep`` is a set of lowercased terms to never flag — used to exempt
+    universal public platforms / OSS frameworks / the app's own framework
+    (Bitrix, 1C, Yandex, Telegram, …) that would otherwise be over-matched.
+    """
+
+    def __init__(
+        self,
+        dictionaries: dict[str, list[str]],
+        keep: set[str] | None = None,
+    ) -> None:
+        self.keep = keep or set()
         self.automaton = ahocorasick.Automaton()
         self._terms: dict[str, str] = {}
         idx = 0
@@ -23,6 +33,8 @@ class DictionaryDetector(Detector):
                 if not term:
                     continue
                 key = term.lower()
+                if key in self.keep:
+                    continue
                 self.automaton.add_word(key, (idx, term, dict_name))
                 self._terms[key] = dict_name
                 idx += 1

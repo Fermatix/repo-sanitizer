@@ -64,6 +64,11 @@ class RunContext:
     history_since: Optional[str] = None
     history_until: Optional[str] = None
     ner_service_url: Optional[str] = None  # if set, NERDetector calls this HTTP service
+    # Where the (expensive, CPU-bound) NER model runs:
+    #   "head" — working tree at --rev only (default; fast, the "like before" path)
+    #   "all"  — also over commit metadata + every history blob (slow, GPU-class)
+    #   "off"  — never load NER at all (fastest; relies on dict/regex + Pass-2 audit)
+    ner_scope: str = "head"
 
     @classmethod
     def create(
@@ -77,12 +82,17 @@ class RunContext:
         history_since: Optional[str] = None,
         history_until: Optional[str] = None,
         ner_service_url: Optional[str] = None,
+        ner_scope: str = "head",
     ) -> RunContext:
         salt_value = os.environ.get(salt_env, "")
         if not salt_value:
             raise ValueError(
                 f"Environment variable '{salt_env}' is not set or empty. "
                 "Salt is required for deterministic anonymization."
+            )
+        if ner_scope not in ("head", "all", "off"):
+            raise ValueError(
+                f"Invalid ner_scope {ner_scope!r}; expected one of head|all|off."
             )
         out = Path(out_dir).expanduser().resolve()
         work = out / "work"
@@ -101,4 +111,5 @@ class RunContext:
             history_since=history_since,
             history_until=history_until,
             ner_service_url=ner_service_url,
+            ner_scope=ner_scope,
         )

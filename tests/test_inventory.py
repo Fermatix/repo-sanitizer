@@ -71,6 +71,28 @@ def test_pem_key_deleted(tmp_path, rulepack):
     assert item.action == FileAction.DELETE
 
 
+# ── office docs (denied binary extension) → DELETE ─────────────────────────────
+
+def test_docx_deleted_despite_docs_mime(tmp_path, rulepack):
+    """Office docs get a non-octet mime (classified DOCS) but must still DELETE."""
+    ctx = _make_ctx(tmp_path, rulepack)
+    _place(ctx.work_dir, "report.docx", "PK\x03\x04 fake zip")
+    run_inventory(ctx)
+    item = next(i for i in ctx.inventory if i.path == "report.docx")
+    assert item.action == FileAction.DELETE
+    assert "docx" in item.reason
+
+
+def test_xlsx_and_pdf_deleted(tmp_path, rulepack):
+    ctx = _make_ctx(tmp_path, rulepack)
+    _place(ctx.work_dir, "data.xlsx", "x")
+    _place(ctx.work_dir, "manual.pdf", "%PDF-1.4")
+    run_inventory(ctx)
+    for rel in ("data.xlsx", "manual.pdf"):
+        item = next(i for i in ctx.inventory if i.path == rel)
+        assert item.action == FileAction.DELETE, rel
+
+
 # ── allow_suffixes → SCAN ──────────────────────────────────────────────────────
 
 def test_config_example_scanned(tmp_path, rulepack):
