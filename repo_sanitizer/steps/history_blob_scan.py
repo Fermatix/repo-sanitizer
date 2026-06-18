@@ -63,6 +63,22 @@ def run_history_blob_scan(
     rulepack: Rulepack = ctx.rulepack
     work_dir = ctx.work_dir
 
+    # Zone-aware history scanning: mirror the working-tree path (steps/scan.py) so a
+    # zone-restricted detector (Endpoint / Dictionary / RegexPII) behaves IDENTICALLY
+    # over history blobs and the working tree. Without zones, a CODE identifier that
+    # collides with a domain-list word (e.g. `restTemplate.exchange` vs the `exchange`
+    # domains.txt entry) or a brand term gets matched OUTSIDE any string/comment zone
+    # and rewritten across all of history — breaking the delivered HEAD build — while
+    # the working-tree scan (zoned) never flagged it. CODE blobs get tree-sitter zones
+    # (regex fallback when no grammar); non-code blobs stay zone-less (scan everywhere),
+    # exactly as the working tree does.
+    from repo_sanitizer.extractors.fallback import FallbackExtractor
+    from repo_sanitizer.extractors.treesitter import TreeSitterExtractor
+    from repo_sanitizer.steps.inventory import CODE_EXTENSIONS
+
+    ts_extractor = TreeSitterExtractor(rulepack.extractor)
+    fb_extractor = FallbackExtractor(rulepack.extractor.fallback_comment_patterns)
+
     blobs = _collect_all_blobs(work_dir)
     logger.info("Scanning %d blobs...", len(blobs))
 
@@ -104,9 +120,18 @@ def run_history_blob_scan(
 
         content, _enc = decode_bytes_detect(raw)
 
+        # Compute tree-sitter zones for CODE blobs so zone-restricted detectors only
+        # match inside string/comment zones (mirrors the working-tree scan); non-code
+        # blobs stay zone-less. See the note at the top of run_history_blob_scan.
+        zones = None
+        if Path(path).suffix.lower() in CODE_EXTENSIONS:
+            zones = ts_extractor.extract_zones(path, content)
+            if zones is None and rulepack.extractor.fallback_enabled:
+                zones = fb_extractor.extract_zones(content)
+
         # Use a virtual path that indicates this is a historical blob
         virtual_path = f"<history:{blob_sha[:8]}/{path}>"
-        target = ScanTarget(file_path=virtual_path, content=content)
+        target = ScanTarget(file_path=virtual_path, content=content, zones=zones)
 
         for detector in detectors:
             t0 = time.perf_counter()

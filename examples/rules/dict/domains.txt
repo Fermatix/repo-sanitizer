@@ -115,12 +115,8 @@ opensearch
 jaeger
 zipkin
 datadog-agent
-sentry
-loki
-tempo
 
 # Secrets / identity
-vault
 hashicorp-vault
 keycloak
 okta-agent
@@ -134,7 +130,6 @@ postgres
 postgresql
 mysql
 mariadb
-oracle
 mssql
 sqlserver
 mongodb
@@ -151,7 +146,6 @@ kafka
 zookeeper
 rabbitmq
 activemq
-nats
 pulsar
 
 # Object / file storage
@@ -164,8 +158,6 @@ nfs
 kubernetes
 k8s
 rancher
-nomad
-consul
 docker-registry
 
 # VPN / network
@@ -173,16 +165,8 @@ vpn
 openvpn
 wireguard
 pfsense
-bastion
-jumphost
-proxy
-squid
 
 # Email
-mail
-smtp
-imap
-exchange
 postfix
 dovecot
 mailhog
@@ -190,13 +174,5 @@ mailtrap
 
 # Internal tools / portals
 intranet
-portal
-dashboard
-admin
 backoffice
 helpdesk
-support
-hr
-finance
-erp
-crm
