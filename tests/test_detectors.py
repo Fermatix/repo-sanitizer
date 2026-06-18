@@ -3,7 +3,9 @@ from __future__ import annotations
 import pytest
 
 from repo_sanitizer.detectors.base import Category, Finding, ScanTarget, Severity, Zone
+from repo_sanitizer.detectors.dictionary import DictionaryDetector
 from repo_sanitizer.detectors.regex_pii import RegexPIIDetector
+from repo_sanitizer.extractors.treesitter import TreeSitterExtractor
 from repo_sanitizer.rulepack import load_rulepack
 
 
@@ -93,3 +95,57 @@ def test_regex_phone_e164(regex_detector):
     target = ScanTarget(file_path="test.txt", content=content)
     findings = regex_detector.detect(target)
     assert any("+15551234567" in f.matched_value for f in findings)
+
+
+# ── Cyrillic zone gating (byte-vs-char regression) ───────────────────────────
+# These build zones with the REAL tree-sitter extractor (byte offsets
+# internally, character offsets after the fix) and assert that a finding inside
+# a zone that FOLLOWS multibyte content survives _in_zones and round-trips.
+
+@pytest.fixture
+def ts_extractor():
+    return TreeSitterExtractor(load_rulepack(RULES_DIR).extractor)
+
+
+def test_regex_email_in_zone_after_cyrillic(regex_detector, ts_extractor):
+    # The comment zone starts AFTER `"Привет"`, so a byte-offset zone start
+    # exceeds the email's character offset and _in_zones wrongly drops it.
+    content = 'x = "Привет"\n# admin@corp.com\n'
+    zones = ts_extractor.extract_zones("t.py", content)
+    target = ScanTarget(file_path="t.py", content=content, zones=zones)
+    findings = regex_detector.detect(target)
+    matches = [f for f in findings if "admin@corp.com" in f.matched_value]
+    assert matches, "email in a comment after Cyrillic must be detected"
+    assert content[matches[0].offset_start:matches[0].offset_end] == "admin@corp.com"
+
+
+def test_dictionary_cyrillic_term_in_zone(ts_extractor):
+    # DictionaryDetector had no unit coverage; this also exercises a Cyrillic
+    # brand term inside a string zone that follows a Cyrillic comment.
+    detector = DictionaryDetector({"orgs": ["Москерам"]})
+    content = '# комментарий\nname = "Москерам"\n'
+    zones = ts_extractor.extract_zones("t.py", content)
+    target = ScanTarget(file_path="t.py", content=content, zones=zones)
+    findings = detector.detect(target)
+    matches = [f for f in findings if f.matched_value == "Москерам"]
+    assert matches, "Cyrillic brand term inside a string zone must be detected"
+    assert content[matches[0].offset_start:matches[0].offset_end] == "Москерам"
+
+
+# ── gitleaks column → char offset (Fix C) ────────────────────────────────────
+
+def test_find_offset_ascii_unchanged():
+    from repo_sanitizer.detectors.secrets import _find_offset
+    content = "line1\nKEY = abc\n"
+    # 1-based line 2, column 7 ('a' of "abc") -> char offset of 'a'
+    assert _find_offset(content, 2, 7) == content.index("abc")
+
+
+def test_find_offset_byte_column_with_cyrillic():
+    from repo_sanitizer.detectors.secrets import _find_offset
+    # A multibyte char precedes the token on the same line; gitleaks reports a
+    # BYTE column. "ключ = " -> 'к','л','ю','ч' are 2 bytes each.
+    content = "ключ = SECRET123\n"
+    prefix = "ключ = "
+    byte_col = len(prefix.encode("utf-8")) + 1  # 1-based byte column of 'S'
+    assert _find_offset(content, 1, byte_col) == content.index("SECRET123")

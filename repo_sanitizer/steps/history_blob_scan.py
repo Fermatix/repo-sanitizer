@@ -8,6 +8,7 @@ from pathlib import Path
 
 from repo_sanitizer.context import RunContext
 from repo_sanitizer.detectors.base import Detector, Finding, ScanTarget
+from repo_sanitizer.encoding import decode_bytes_detect
 from repo_sanitizer.rulepack import Rulepack
 
 logger = logging.getLogger(__name__)
@@ -79,10 +80,7 @@ def run_history_blob_scan(
             skipped_large += 1
             continue
 
-        try:
-            content = raw.decode("utf-8", errors="replace")
-        except Exception:
-            continue
+        content, _enc = decode_bytes_detect(raw)
 
         # Use a virtual path that indicates this is a historical blob
         virtual_path = f"<history:{blob_sha[:8]}/{path}>"

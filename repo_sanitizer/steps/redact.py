@@ -6,6 +6,7 @@ from pathlib import Path
 
 from repo_sanitizer.context import FileAction, FileCategory, RunContext
 from repo_sanitizer.detectors.base import Finding
+from repo_sanitizer.encoding import read_text_detect
 from repo_sanitizer.extractors.fallback import FallbackExtractor
 from repo_sanitizer.extractors.treesitter import TreeSitterExtractor
 from repo_sanitizer.redaction.applier import apply_redactions
@@ -39,7 +40,7 @@ def run_redact(ctx: RunContext, findings: list[Finding]) -> list[dict]:
             continue
 
         try:
-            content = file_path.read_text(encoding="utf-8", errors="replace")
+            content, enc = read_text_detect(file_path)
         except Exception as e:
             logger.warning("Cannot read %s for redaction: %s", file_rel, e)
             continue
@@ -62,7 +63,11 @@ def run_redact(ctx: RunContext, findings: list[Finding]) -> list[dict]:
             continue
 
         redacted, manifest = apply_redactions(content, file_findings, ctx.salt)
-        file_path.write_text(redacted, encoding="utf-8")
+        # Write back in the file's ORIGINAL encoding so a cp1251 file stays
+        # cp1251 (replacement masks are ASCII and the original Cyrillic round-
+        # trips); errors="replace" is a safety net for any stray non-encodable
+        # char introduced by a replacement.
+        file_path.write_text(redacted, encoding=enc, errors="replace")
         all_manifest.extend(manifest)
         logger.debug("Redacted %d findings in %s", len(manifest), file_rel)
 
