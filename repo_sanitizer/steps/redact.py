@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 
 from repo_sanitizer.context import FileAction, FileCategory, RunContext
-from repo_sanitizer.detectors.base import Finding
+from repo_sanitizer.detectors.base import Finding, is_detection_only
 from repo_sanitizer.encoding import read_text_detect
 from repo_sanitizer.extractors.fallback import FallbackExtractor
 from repo_sanitizer.extractors.treesitter import TreeSitterExtractor
@@ -18,6 +18,16 @@ logger = logging.getLogger(__name__)
 def run_redact(ctx: RunContext, findings: list[Finding]) -> list[dict]:
     rulepack: Rulepack = ctx.rulepack
     ts_extractor = TreeSitterExtractor(rulepack.extractor)
+
+    # Brand findings (dictionary / NER orgs / brand-in-identifier / brand-in-path /
+    # package-namespace) are DETECTION-ONLY in Pass-1: the coherent brand → AcmeN
+    # rename is applied once in Pass-2, so we must not mask them here (a per-finding
+    # opaque mask would make the same brand inconsistent and un-renameable). They
+    # remain in the tree and keep the brand gates RED — that red gate IS the
+    # Pass-2 worklist. PII / secrets / public IPs / person names stay rewritten.
+    # The check is detector-aware: regex-PII DICTIONARY matches (jira/uuid/issue
+    # refs) are internal IDs, not brands, and are still redacted.
+    findings = [f for f in findings if not is_detection_only(f)]
 
     # 1. Delete files with DELETE action
     for item in ctx.inventory:

@@ -30,11 +30,14 @@ def _finding_summary(findings: list) -> str:
     counts = Counter(f.category for f in findings)
     parts = []
     for cat, label in [
-        (Category.SECRET,     "secrets"),
-        (Category.PII,        "PII"),
-        (Category.ORG_NAME,   "org names"),
-        (Category.DICTIONARY, "dict"),
-        (Category.ENDPOINT,   "endpoints"),
+        (Category.SECRET,            "secrets"),
+        (Category.PII,               "PII"),
+        (Category.ORG_NAME,          "org names"),
+        (Category.DICTIONARY,        "dict"),
+        (Category.ENDPOINT,          "endpoints"),
+        (Category.BRAND_IDENTIFIER,  "brand idents"),
+        (Category.BRAND_PATH,        "brand paths"),
+        (Category.PACKAGE_NAMESPACE, "pkg/namespace"),
     ]:
         if counts[cat]:
             parts.append(f"{counts[cat]} {label}")

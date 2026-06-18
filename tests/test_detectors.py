@@ -3,10 +3,17 @@ from __future__ import annotations
 import pytest
 
 from repo_sanitizer.detectors.base import Category, Finding, ScanTarget, Severity, Zone
+from repo_sanitizer.detectors.brand_structural import (
+    BrandMatcher,
+    BrandPathDetector,
+    BrandStructuralDetector,
+)
 from repo_sanitizer.detectors.dictionary import DictionaryDetector
+from repo_sanitizer.detectors.endpoint import EndpointDetector
 from repo_sanitizer.detectors.regex_pii import RegexPIIDetector
 from repo_sanitizer.extractors.treesitter import TreeSitterExtractor
-from repo_sanitizer.rulepack import load_rulepack
+from repo_sanitizer.rulepack import Rulepack, load_rulepack
+from repo_sanitizer.steps.scan import build_brand_terms
 
 
 RULES_DIR = __import__("pathlib").Path(__file__).parent.parent / "repo_sanitizer" / "rules"
@@ -149,3 +156,304 @@ def test_find_offset_byte_column_with_cyrillic():
     prefix = "ключ = "
     byte_col = len(prefix.encode("utf-8")) + 1  # 1-based byte column of 'S'
     assert _find_offset(content, 1, byte_col) == content.index("SECRET123")
+
+
+# ── Keep-list / allowlist (Change 1) ─────────────────────────────────────────
+
+def test_dictionary_keep_suppresses_term():
+    content = 'name = "Yandex"\n'
+    target = ScanTarget(file_path="t.txt", content=content)
+    assert DictionaryDetector({"orgs": ["Yandex"]}).detect(target), "control: flagged without keep"
+    kept = DictionaryDetector({"orgs": ["Yandex"]}, keep={"yandex"}).detect(target)
+    assert not kept, "a kept term must not be flagged"
+
+
+def test_ner_keep_org_precise():
+    # No model needed — exercise the keep decision directly.
+    from repo_sanitizer.detectors.ner import NERDetector
+    from repo_sanitizer.rulepack import NERConfig
+    det = NERDetector(NERConfig(), keep={"yandex", "google", "apple"})
+    # kept: bare brand, brand + unambiguous legal-form suffix
+    assert det._is_kept_org("yandex")
+    assert det._is_kept_org("google llc")
+    assert det._is_kept_org("yandex inc")
+    assert det._is_kept_org("google corp")
+    # NOT kept: a distinct org that shares one token with a kept brand — incl.
+    # a meaningful noun ("bank"/"cloud") that is NOT a pure legal form
+    assert not det._is_kept_org("apple bank")
+    assert not det._is_kept_org("yandex cloud")
+    assert not det._is_kept_org("apple logistics llc")
+    assert not det._is_kept_org("big apple corp")
+    assert not det._is_kept_org("acme google llc")
+    assert not det._is_kept_org("ооо рога и копыта")
+
+
+def test_endpoint_keep_suppresses_domain():
+    content = "host = acme.internal\n"
+    target = ScanTarget(file_path="t.txt", content=content)
+    assert EndpointDetector().detect(target), "control: .internal domain flagged"
+    kept = EndpointDetector(keep={"acme.internal"}).detect(target)
+    assert not any(f.matched_value == "acme.internal" for f in kept)
+
+
+def test_endpoint_keep_suppresses_subdomain():
+    content = "host = api.acme.internal\n"
+    findings = EndpointDetector(keep={"acme.internal"}).detect(
+        ScanTarget(file_path="t.txt", content=content)
+    )
+    assert not any("acme.internal" in f.matched_value for f in findings)
+
+
+# ── Public vs private IP (Change 2) ──────────────────────────────────────────
+
+def test_endpoint_flags_public_ip():
+    content = "API = http://52.14.226.9/v1\n"
+    findings = EndpointDetector().detect(ScanTarget(file_path="t.txt", content=content))
+    ips = [f for f in findings if f.matched_value == "52.14.226.9"]
+    assert ips, "a routable public IP must be flagged"
+    assert ips[0].severity == Severity.HIGH
+
+
+@pytest.mark.parametrize("ip", ["192.168.1.100", "10.0.0.1", "172.16.5.4", "127.0.0.1"])
+def test_endpoint_keeps_private_ip(ip):
+    content = f"host = {ip}\n"
+    findings = EndpointDetector().detect(ScanTarget(file_path="t.txt", content=content))
+    assert not any(f.matched_value == ip for f in findings), f"{ip} (private) must be kept"
+
+
+@pytest.mark.parametrize("ip", ["192.0.2.5", "198.51.100.7", "203.0.113.9", "8.8.8.8", "1.1.1.1"])
+def test_endpoint_keeps_doc_and_wellknown_ip(ip):
+    content = f"host = {ip}\n"
+    findings = EndpointDetector().detect(ScanTarget(file_path="t.txt", content=content))
+    assert not any(f.matched_value == ip for f in findings), f"{ip} (doc/well-known) must be kept"
+
+
+@pytest.mark.parametrize("ip", ["100.64.0.1", "100.127.255.254"])
+def test_endpoint_keeps_cgnat_ip(ip):
+    # RFC6598 shared address space is not globally routable — must be kept.
+    content = f"host = {ip}\n"
+    findings = EndpointDetector().detect(ScanTarget(file_path="t.txt", content=content))
+    assert not any(f.matched_value == ip for f in findings), f"{ip} (CGNAT) must be kept"
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["app version 1.2.3.4.5 here", "OID 1.3.6.1.4.1.311 x", "build 12.34.56.78.90"],
+)
+def test_endpoint_ignores_version_strings_and_oids(text):
+    # The leading quad of a longer dotted-numeric run must NOT be taken for an IP.
+    findings = EndpointDetector().detect(ScanTarget(file_path="t.txt", content=text))
+    assert not findings, f"version string / OID must not flag an IP: {text!r}"
+
+
+def test_endpoint_flags_public_ipv6():
+    content = "dns = 2606:4700:4700::1111\n"
+    findings = EndpointDetector().detect(ScanTarget(file_path="t.txt", content=content))
+    assert any(f.matched_value == "2606:4700:4700::1111" for f in findings)
+
+
+@pytest.mark.parametrize("ip", ["::1", "fe80::1", "2001:db8::1", "fc00::1"])
+def test_endpoint_keeps_nonglobal_ipv6(ip):
+    content = f"addr = {ip}\n"
+    findings = EndpointDetector().detect(ScanTarget(file_path="t.txt", content=content))
+    assert not any(f.matched_value == ip for f in findings), f"{ip} (non-global v6) must be kept"
+
+
+def test_endpoint_keeps_ip_in_keep_set():
+    content = "host = 52.14.226.9\n"
+    findings = EndpointDetector(keep={"52.14.226.9"}).detect(
+        ScanTarget(file_path="t.txt", content=content)
+    )
+    assert not findings
+
+
+# ── Domains split off the brand dictionary (Change 3) ────────────────────────
+
+def test_build_brand_terms_excludes_domains_and_keep():
+    rp = Rulepack(
+        path=RULES_DIR,
+        version="test",
+        dictionaries={
+            "orgs": ["Extyl"],
+            "domains": ["mail", "jira"],
+            "keep": ["Yandex"],
+        },
+    )
+    terms, keep = build_brand_terms(rp)
+    lowered = {t.lower() for t in terms}
+    assert "extyl" in lowered
+    assert "mail" not in lowered and "jira" not in lowered, "domains must not be brand terms"
+    assert "yandex" not in lowered, "keep terms must not be brand terms"
+    # keep is variant-expanded, so its Cyrillic translit is also exempt
+    assert "yandex" in keep
+    assert "яндекс" in keep, "keep set must be variant-expanded (Cyrillic form)"
+
+
+def test_build_brand_terms_variant_expands_brands():
+    rp = Rulepack(
+        path=RULES_DIR,
+        version="test",
+        dictionaries={"orgs": ["mdm-light"]},
+    )
+    terms, _ = build_brand_terms(rp)
+    lowered = {t.lower() for t in terms}
+    assert {"mdm-light", "mdmlight", "mdm_light"} <= lowered, "brand terms must be variant-expanded"
+
+
+# ── Brand-in-path (Change 4a) ────────────────────────────────────────────────
+
+class _Item:
+    def __init__(self, path):
+        self.path = path
+
+
+def test_brand_path_detects_dir_and_file():
+    matcher = BrandMatcher(["extyl"], set())
+    det = BrandPathDetector(matcher)
+    inv = [_Item("src/extyl/ExtylProfile.php"), _Item("README.md")]
+    findings = det.detect_inventory(inv)
+    cats = {f.category for f in findings}
+    assert cats == {Category.BRAND_PATH}
+    vals = {f.matched_value.lower() for f in findings}
+    assert "extyl" in vals
+    # offsets index into the path string and round-trip exactly
+    for f in findings:
+        assert f.file_path[f.offset_start : f.offset_end] == f.matched_value
+
+
+def test_brand_path_dedups_repeated_dir():
+    matcher = BrandMatcher(["extyl"], set())
+    det = BrandPathDetector(matcher)
+    inv = [_Item("src/extyl/A.php"), _Item("src/extyl/B.php"), _Item("src/extyl/C.php")]
+    findings = det.detect_inventory(inv)
+    # the `extyl` directory must be reported once, not once per file
+    assert sum(1 for f in findings if f.matched_value.lower() == "extyl") == 1
+
+
+# ── Brand-in-identifier / package (Change 4b) ────────────────────────────────
+
+@pytest.fixture
+def struct_extractor(rulepack):
+    return TreeSitterExtractor(rulepack.extractor)
+
+
+def test_brand_identifier_in_python_code(struct_extractor):
+    # Python grammar is a hard dependency, so this never needs the language pack.
+    content = (
+        "import extyl.util\n"
+        "from extyl.models import ExtylModel\n"
+        'note = "contact extyl support"  # see extyl.com\n'
+        "class ExtylProfile(Base):\n"
+        "    extyl_client = ExtylModel()\n"
+    )
+    zones = struct_extractor.extract_zones("m.py", content)
+    pkg = struct_extractor.extract_identifier_zones("m.py", content)
+    assert pkg is not None
+    det = BrandStructuralDetector(BrandMatcher(["extyl"], set()))
+    findings = det.detect("m.py", content, zones, pkg)
+    cats = {f.category for f in findings}
+    assert Category.PACKAGE_NAMESPACE in cats, "import statements → PACKAGE_NAMESPACE"
+    assert Category.BRAND_IDENTIFIER in cats, "ExtylProfile class → BRAND_IDENTIFIER"
+    # brand inside the string literal / comment is DictionaryDetector's job, not here
+    lines = {f.line for f in findings if f.category == Category.BRAND_IDENTIFIER}
+    assert 3 not in lines, "string/comment match must be excluded from structural pass"
+
+
+def test_dictionary_catches_string_brand_excluded_by_structural(struct_extractor):
+    # Compensating coverage: the structural pass EXCLUDES the string/comment
+    # brand precisely because DictionaryDetector is expected to catch it. Prove
+    # the brand is covered by exactly one pass and never dropped between them.
+    content = 'note = "contact extyl support"\n'
+    zones = struct_extractor.extract_zones("m.py", content)
+    dict_hits = DictionaryDetector({"orgs": ["extyl"]}).detect(
+        ScanTarget(file_path="m.py", content=content, zones=zones)
+    )
+    assert any(f.matched_value.lower() == "extyl" for f in dict_hits), (
+        "brand in a string literal must be caught by DictionaryDetector"
+    )
+    struct = BrandStructuralDetector(BrandMatcher(["extyl"], set())).detect(
+        "m.py", content, zones, struct_extractor.extract_identifier_zones("m.py", content)
+    )
+    assert not struct, "the same string-literal brand must NOT also be a structural finding"
+
+
+def test_brand_identifier_keep_suppresses(struct_extractor):
+    content = "class YandexClient(Base):\n    pass\n"
+    zones = struct_extractor.extract_zones("m.py", content)
+    pkg = struct_extractor.extract_identifier_zones("m.py", content)
+    det = BrandStructuralDetector(BrandMatcher(["yandex"], keep={"yandex"}))
+    assert not det.detect("m.py", content, zones, pkg)
+
+
+def _language_pack_has(lang_id: str) -> bool:
+    try:
+        from tree_sitter_language_pack import get_language
+        get_language(lang_id)
+        return True
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(
+    not _language_pack_has("java"),
+    reason="requires tree-sitter-language-pack (java grammar)",
+)
+def test_brand_package_in_java(struct_extractor):
+    content = (
+        "package ru.extyl.app;\n"
+        "import ru.extyl.util.Helper;\n"
+        "public class ExtylProfile {\n"
+        "    private int extylClient = 0;\n"
+        "}\n"
+    )
+    zones = struct_extractor.extract_zones("Foo.java", content)
+    pkg = struct_extractor.extract_identifier_zones("Foo.java", content)
+    assert pkg, "java package/import declarations must be located"
+    det = BrandStructuralDetector(BrandMatcher(["extyl"], set()))
+    findings = det.detect("Foo.java", content, zones, pkg)
+    by_cat = {}
+    for f in findings:
+        by_cat.setdefault(f.category, []).append(f.line)
+    assert Category.PACKAGE_NAMESPACE in by_cat, "package ru.extyl + import → PACKAGE_NAMESPACE"
+    assert Category.BRAND_IDENTIFIER in by_cat, "ExtylProfile / extylClient → BRAND_IDENTIFIER"
+
+
+@pytest.mark.skipif(
+    not _language_pack_has("php"),
+    reason="requires tree-sitter-language-pack (php grammar)",
+)
+def test_brand_package_in_php(struct_extractor):
+    # Locks the php node-type strings (namespace_definition / namespace_use_declaration).
+    content = (
+        "<?php\n"
+        "namespace App\\Extyl\\Service;\n"
+        "use App\\Extyl\\Model\\ExtylModel;\n"
+        "class ExtylProfile extends Base {}\n"
+    )
+    zones = struct_extractor.extract_zones("Foo.php", content)
+    pkg = struct_extractor.extract_identifier_zones("Foo.php", content)
+    assert pkg, "php namespace/use declarations must be located"
+    findings = BrandStructuralDetector(BrandMatcher(["extyl"], set())).detect(
+        "Foo.php", content, zones, pkg
+    )
+    cats = {f.category for f in findings}
+    assert Category.PACKAGE_NAMESPACE in cats
+    assert Category.BRAND_IDENTIFIER in cats
+
+
+def test_build_history_detectors_parity():
+    # History blob detectors must mirror the working-tree build: keep-list applied
+    # and domains split off the brand DictionaryDetector.
+    from repo_sanitizer.steps.history_blob_scan import build_history_detectors
+    rp = Rulepack(
+        path=RULES_DIR, version="test",
+        dictionaries={"orgs": ["Extyl"], "domains": ["jira"], "keep": ["Yandex"]},
+    )
+    det = next(
+        d for d in build_history_detectors(rp) if type(d).__name__ == "DictionaryDetector"
+    )
+    content = "Extyl and jira and Yandex"
+    hits = {f.matched_value.lower() for f in det.detect(ScanTarget(file_path="t.txt", content=content))}
+    assert "extyl" in hits, "brand still flagged in history"
+    assert "jira" not in hits, "domains split off the history brand dictionary"
+    assert "yandex" not in hits, "keep-list applied in history"

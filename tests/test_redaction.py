@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from repo_sanitizer.context import FileAction, FileCategory, InventoryItem, RunContext
 from repo_sanitizer.detectors.base import Category, Finding, Severity
 from repo_sanitizer.redaction.applier import apply_redactions
 from repo_sanitizer.redaction.git_identity import normalize_author, normalize_email
@@ -11,9 +14,12 @@ from repo_sanitizer.redaction.replacements import (
     mask_org,
     mask_person,
 )
+from repo_sanitizer.rulepack import load_rulepack
+from repo_sanitizer.steps.redact import run_redact
 
 
 SALT = b"test-salt-unit"
+RULES_DIR = Path(__file__).parent.parent / "repo_sanitizer" / "rules"
 
 
 # ── Determinism ────────────────────────────────────────────────────────────────
@@ -154,6 +160,91 @@ def test_applier_redacts_cyrillic_value():
     assert result.startswith("before ")
     assert result.endswith(" after")
     assert manifest[0]["original_value"] == "Москерам"
+
+
+# ── run_redact detection-only skip-set (Option A) ────────────────────────────
+
+def _redact_ctx(tmp_path, rel: str, content: str) -> RunContext:
+    work = tmp_path / "work"
+    artifacts = tmp_path / "out" / "artifacts"
+    work.mkdir(parents=True)
+    artifacts.mkdir(parents=True)
+    (work / rel).write_text(content, encoding="utf-8")
+    ctx = RunContext(
+        salt=SALT,
+        work_dir=work,
+        out_dir=tmp_path / "out",
+        artifacts_dir=artifacts,
+        rulepack_path=RULES_DIR,
+        rulepack=load_rulepack(RULES_DIR),
+    )
+    ctx.inventory = [
+        InventoryItem(
+            path=rel, size=len(content), mime="text/plain",
+            category=FileCategory.DOCS, action=FileAction.SCAN,
+        )
+    ]
+    return ctx
+
+
+def _at(content: str, value: str, category: Category, detector: str = "RegexPIIDetector") -> Finding:
+    start = content.index(value)
+    return Finding(
+        detector=detector,
+        category=category,
+        severity=Severity.HIGH,
+        file_path="note.txt",
+        line=1,
+        offset_start=start,
+        offset_end=start + len(value),
+        matched_value=value,
+    )
+
+
+@pytest.mark.parametrize(
+    "brand_category,detector",
+    [
+        (Category.DICTIONARY, "DictionaryDetector"),
+        (Category.ORG_NAME, "NERDetector"),
+        (Category.BRAND_IDENTIFIER, "BrandStructuralDetector"),
+        (Category.BRAND_PATH, "BrandPathDetector"),
+        (Category.PACKAGE_NAMESPACE, "BrandStructuralDetector"),
+    ],
+)
+def test_run_redact_keeps_brand_findings(tmp_path, brand_category, detector):
+    content = "Extyl wrote alice@corp.com today"
+    ctx = _redact_ctx(tmp_path, "note.txt", content)
+    findings = [
+        _at(content, "Extyl", brand_category, detector),
+        _at(content, "alice@corp.com", Category.PII),
+    ]
+    run_redact(ctx, findings)
+    result = (ctx.work_dir / "note.txt").read_text(encoding="utf-8")
+    assert "Extyl" in result, "brand finding must be detection-only (not rewritten in Pass-1)"
+    assert "alice@corp.com" not in result, "PII must still be redacted"
+    # only the PII redaction is recorded in the manifest
+    assert all(e["category"] == "PII" for e in ctx.redaction_manifest)
+
+
+def test_run_redact_rewrites_regex_dictionary_ids(tmp_path):
+    # The regex PII rulepack categorizes jira/uuid/issue refs as DICTIONARY;
+    # those are internal IDs, NOT brands, so they must STILL be redacted even
+    # though DictionaryDetector's brand DICTIONARY findings are detection-only.
+    content = "ticket PROJ-1234 needs review"
+    ctx = _redact_ctx(tmp_path, "note.txt", content)
+    findings = [_at(content, "PROJ-1234", Category.DICTIONARY, detector="RegexPIIDetector")]
+    run_redact(ctx, findings)
+    result = (ctx.work_dir / "note.txt").read_text(encoding="utf-8")
+    assert "PROJ-1234" not in result, "regex-PII DICTIONARY (jira ID) must still be redacted"
+
+
+def test_run_redact_rewrites_endpoint(tmp_path):
+    content = "host 52.14.226.9 stay-redacted"
+    ctx = _redact_ctx(tmp_path, "note.txt", content)
+    findings = [_at(content, "52.14.226.9", Category.ENDPOINT)]
+    run_redact(ctx, findings)
+    result = (ctx.work_dir / "note.txt").read_text(encoding="utf-8")
+    assert "52.14.226.9" not in result, "ENDPOINT (public IP) is not a brand — still rewritten"
 
 
 # ── Git identity ───────────────────────────────────────────────────────────────

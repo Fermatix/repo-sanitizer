@@ -251,6 +251,45 @@ def install_grammars(
     typer.echo(f"  repo-sanitizer install-grammars --rulepack {rulepack}")
 
 
+@app.command("expand-variants")
+def expand_variants(
+    input_file: Path = typer.Argument(
+        ..., help="Text file with one brand term per line (# comments allowed)"
+    ),
+    output_file: Optional[Path] = typer.Argument(
+        None, help="Write expanded terms here (default: stdout)"
+    ),
+) -> None:
+    """Expand brand terms to all separator / Cyrillic / mojibake variants.
+
+    The dictionary/brand matchers are case-insensitive, so case variants are
+    redundant; this materializes the forms case-folding does not cover. Useful
+    to inspect what a brand token will match, or to pre-bake a dictionary file.
+    """
+    _setup_logging()
+    from repo_sanitizer.variants import expand_term
+
+    if not input_file.exists():
+        logging.getLogger(__name__).error("Input file not found: %s", input_file)
+        raise typer.Exit(code=1)
+
+    terms = [
+        line.strip()
+        for line in input_file.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    expanded: set[str] = set()
+    for term in terms:
+        expanded |= expand_term(term)
+
+    body = "\n".join(sorted(expanded))
+    if output_file is not None:
+        output_file.write_text(body + "\n", encoding="utf-8")
+        typer.echo(f"Wrote {len(expanded)} variants from {len(terms)} terms → {output_file}")
+    else:
+        typer.echo(body)
+
+
 @app.command("ner-service")
 def ner_service(
     port: int = typer.Option(8765, "--port", help="TCP port to listen on"),

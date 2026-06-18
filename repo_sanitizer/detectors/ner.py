@@ -34,6 +34,22 @@ GLINER_LABEL_MAP = {
 # Reverse: descriptive label → code
 _GLINER_LABEL_REVERSE = {v: k for k, v in GLINER_LABEL_MAP.items()}
 
+# Unambiguous legal-form / corporate suffix tokens ONLY. A multi-word ORG is
+# kept only when, after stripping these, every remaining (brandish) token is on
+# the keep-list — so "Google LLC" is exempt while "Apple Bank" / "Apple
+# Logistics LLC" (distinct companies that merely share the token "apple") are
+# NOT and still gate. Deliberately excludes meaningful nouns like
+# bank/cloud/pay/labs/group that distinguish a company ("Yandex Cloud" / "Apple
+# Pay" therefore reach the worklist — safe-direction noise that Pass-2 dismisses,
+# preferable to dropping a distinct "Apple Bank").
+_GENERIC_ORG_TOKENS = frozenset(
+    {
+        "llc", "inc", "ltd", "limited", "corp", "corporation", "co", "company",
+        "gmbh", "sa", "ag", "plc", "pte", "pty", "oy", "bv", "nv", "as",
+        "spa", "srl", "ооо", "зао", "пао", "ао", "ип",
+    }
+)
+
 
 class NERDetector(Detector):
     """Detect person and organization names using a transformer NER model.
@@ -43,9 +59,15 @@ class NERDetector(Detector):
     being loaded into every worker process.
     """
 
-    def __init__(self, config: NERConfig, service_url: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        config: NERConfig,
+        service_url: Optional[str] = None,
+        keep: Optional[set[str]] = None,
+    ) -> None:
         self.config = config
         self.service_url = service_url  # if set, use HTTP mode (batch)
+        self.keep = keep or set()  # lowercased terms to never flag (kept brands)
         self._pipeline = None
         self._gliner = None
 
@@ -242,6 +264,8 @@ class NERDetector(Detector):
                 word = entity.get("word", "").strip()
                 if len(word) < 3:
                     continue
+                if self._is_kept_org(word.lower()):
+                    continue
                 start = base_offset + chunk_offset + entity["start"]
                 end = base_offset + chunk_offset + entity["end"]
                 category, severity = LABEL_MAP[label]
@@ -306,6 +330,24 @@ class NERDetector(Detector):
             chunk_text = "\n".join(current_lines)
             chunks.append((current_start, chunk_text))
         return chunks
+
+    def _is_kept_org(self, word_lower: str) -> bool:
+        """True if this entity is a kept brand and should not be flagged.
+
+        Exact whole-entity match, or a multi-word entity whose only non-generic
+        tokens are all kept (so "Google LLC"/"Yandex Cloud" are kept but a
+        distinct "Apple Logistics LLC" is not). A bare unknown word is never
+        kept just for sharing a token with a kept brand.
+        """
+        if not self.keep:
+            return False
+        if word_lower in self.keep:
+            return True
+        tokens = word_lower.split()
+        if len(tokens) < 2:
+            return False
+        brandish = [t for t in tokens if t not in _GENERIC_ORG_TOKENS]
+        return bool(brandish) and all(t in self.keep for t in brandish)
 
     @staticmethod
     def _deduplicate(findings: list[Finding]) -> list[Finding]:

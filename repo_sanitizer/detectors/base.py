@@ -22,6 +22,51 @@ class Category(str, Enum):
     ORG_NAME = "ORG_NAME"
     DICTIONARY = "DICTIONARY"
     ENDPOINT = "ENDPOINT"
+    # Brand findings that survive in code structure rather than literals/comments.
+    # Detected + gated by Pass-1, but NEVER rewritten here (see BRAND_DETECTION_ONLY).
+    BRAND_IDENTIFIER = "BRAND_IDENTIFIER"      # brand inside a code identifier (ExtylProfile)
+    BRAND_PATH = "BRAND_PATH"                  # brand inside a file/dir path component
+    PACKAGE_NAMESPACE = "PACKAGE_NAMESPACE"    # brand inside package/namespace/import decl
+
+
+# Categories that Pass-1 DETECTS and GATES but must NOT rewrite. The coherent
+# brand → AcmeN map is applied once, in Pass-2 (Claude + codex second look), so
+# the same brand never receives two different deterministic masks. Consequently
+# the brand gates are intentionally RED after Pass-1 — they ARE the worklist and
+# only reach zero after Pass-2's rename + a re-scan. (SECRET / PII / ENDPOINT /
+# person-PER findings stay rewrite-in-place; they are not brands.)
+BRAND_DETECTION_ONLY: frozenset[Category] = frozenset(
+    {
+        Category.DICTIONARY,
+        Category.ORG_NAME,
+        Category.BRAND_IDENTIFIER,
+        Category.BRAND_PATH,
+        Category.PACKAGE_NAMESPACE,
+    }
+)
+
+
+def is_detection_only(finding: "Finding") -> bool:
+    """True if a finding is a brand worklist item (gated, never rewritten).
+
+    Detector-aware: DICTIONARY / ORG_NAME are brands ONLY when they come from
+    the brand detectors. The regex PII rulepack also categorizes some matches
+    as DICTIONARY (jira_ticket / github_issue_ref / uuid) — those are internal
+    IDs, not brands, and must still be redacted. The three structural
+    categories are only ever produced by the brand path/identifier detectors.
+    """
+    cat = finding.category
+    if cat in (
+        Category.BRAND_IDENTIFIER,
+        Category.BRAND_PATH,
+        Category.PACKAGE_NAMESPACE,
+    ):
+        return True
+    if cat == Category.DICTIONARY:
+        return finding.detector == "DictionaryDetector"
+    if cat == Category.ORG_NAME:
+        return finding.detector == "NERDetector"
+    return False
 
 
 @dataclass
