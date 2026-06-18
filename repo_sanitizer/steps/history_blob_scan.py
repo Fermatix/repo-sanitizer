@@ -5,21 +5,26 @@ import logging
 import subprocess
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Optional
 
 from repo_sanitizer.context import RunContext
 from repo_sanitizer.detectors.base import Detector, Finding, ScanTarget
 from repo_sanitizer.encoding import decode_bytes_detect
 from repo_sanitizer.rulepack import Rulepack
 
+if TYPE_CHECKING:
+    from repo_sanitizer.detectors.ner import NERDetector
+
 logger = logging.getLogger(__name__)
 
 
 def build_history_detectors(rulepack: Rulepack) -> list[Detector]:
-    """Detectors for history blob scanning.
+    """Detectors for history blob scanning (per-blob inner loop).
 
     SecretsDetector (gitleaks) is excluded: calling it once per blob via
     subprocess would be prohibitively slow for large histories.
-    NERDetector is also excluded for the same reason.
+    NERDetector is excluded here too — it is run once in batch after the loop
+    via ``run_history_blob_scan(ner_detector=...)``.
 
     Uses the same keep-list / domains-split / variant-expanded brand terms as
     the working-tree ``build_detectors`` so history and working tree agree on
@@ -47,8 +52,14 @@ def run_history_blob_scan(
     ctx: RunContext,
     detectors: list[Detector],
     report_name: str = "history_blob_scan_pre.json",
+    ner_detector: Optional["NERDetector"] = None,
 ) -> list[Finding]:
-    """Scan file contents of every unique blob reachable from any branch or tag."""
+    """Scan file contents of every unique blob reachable from any branch or tag.
+
+    ``detectors`` runs per-blob (fast, subprocess-free detectors only).
+    ``ner_detector``, when provided, is applied once in a single batched
+    inference call over all decoded blobs after the per-blob loop completes.
+    """
     rulepack: Rulepack = ctx.rulepack
     work_dir = ctx.work_dir
 
@@ -57,8 +68,11 @@ def run_history_blob_scan(
 
     all_findings: list[Finding] = []
     detector_times: dict[str, float] = {type(d).__name__: 0.0 for d in detectors}
+    if ner_detector is not None:
+        detector_times["NERDetector"] = 0.0
     skipped_binary = 0
     skipped_large = 0
+    ner_targets: list[ScanTarget] = []
 
     for blob_sha, path in blobs:
         ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
@@ -110,6 +124,23 @@ def run_history_blob_scan(
                 )
             finally:
                 detector_times[type(detector).__name__] += time.perf_counter() - t0
+
+        if ner_detector is not None:
+            ner_targets.append(target)
+
+    # NER batch pass — all blobs in one inference call
+    if ner_detector is not None and ner_targets:
+        logger.info("Running NER on %d history blobs...", len(ner_targets))
+        t0 = time.perf_counter()
+        try:
+            ner_findings = ner_detector.detect_batch(ner_targets)
+            for f in ner_findings:
+                f.compute_hash(ctx.salt)
+            all_findings.extend(ner_findings)
+        except Exception as e:
+            logger.warning("NER history blob scan failed: %s", e)
+        finally:
+            detector_times["NERDetector"] += time.perf_counter() - t0
 
     scan_key = report_name.removesuffix(".json")
     ctx.timings.setdefault("detectors", {})[scan_key] = {

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from repo_sanitizer.context import FileAction, RunContext
+from repo_sanitizer.detectors.ner import NERDetector
 from repo_sanitizer.rulepack import load_rulepack
 from repo_sanitizer.steps.fetch import fetch
 from repo_sanitizer.steps.gate import run_gate_check
@@ -141,6 +142,7 @@ def run_sanitize(
 
     # Step 3: Pre-scan (working tree at --rev)
     detectors = build_detectors(rulepack, ner_service_url=ctx.ner_service_url)
+    ner_detector = next((d for d in detectors if isinstance(d, NERDetector)), None)
     logger.info("Scanning working tree (%d files)...", scan_n)
     t0 = time.perf_counter()
     ctx.pre_findings = run_scan(ctx, detectors, "scan_report_pre.json")
@@ -179,7 +181,7 @@ def run_sanitize(
     logger.info("Scanning history (file blobs)...")
     t0 = time.perf_counter()
     ctx.history_blob_pre_findings = run_history_blob_scan(
-        ctx, history_detectors, "history_blob_scan_pre.json"
+        ctx, history_detectors, "history_blob_scan_pre.json", ner_detector=ner_detector
     )
     elapsed = time.perf_counter() - t0
     ctx.timings["steps"]["history_blob_scan_pre"] = round(elapsed, 3)
@@ -201,7 +203,7 @@ def run_sanitize(
     ctx.timings["steps"]["history_scan_post"] = round(time.perf_counter() - t0, 3)
     t0 = time.perf_counter()
     ctx.history_blob_post_findings = run_history_blob_scan(
-        ctx, history_detectors, "history_blob_scan_post.json"
+        ctx, history_detectors, "history_blob_scan_post.json", ner_detector=ner_detector
     )
     ctx.timings["steps"]["history_blob_scan_post"] = round(time.perf_counter() - t0, 3)
 
@@ -282,6 +284,7 @@ def run_scan_only(
 
     # Step 3: Pre-scan (working tree)
     detectors = build_detectors(rulepack, ner_service_url=ctx.ner_service_url)
+    ner_detector = next((d for d in detectors if isinstance(d, NERDetector)), None)
     logger.info("Scanning working tree (%d files)...", scan_n)
     t0 = time.perf_counter()
     ctx.pre_findings = run_scan(ctx, detectors, "scan_report_pre.json")
@@ -303,7 +306,7 @@ def run_scan_only(
     logger.info("Scanning history (file blobs)...")
     t0 = time.perf_counter()
     ctx.history_blob_pre_findings = run_history_blob_scan(
-        ctx, history_detectors, "history_blob_scan_pre.json"
+        ctx, history_detectors, "history_blob_scan_pre.json", ner_detector=ner_detector
     )
     elapsed = time.perf_counter() - t0
     ctx.timings["steps"]["history_blob_scan_pre"] = round(elapsed, 3)

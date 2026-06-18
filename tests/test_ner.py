@@ -205,6 +205,100 @@ def test_gliner_zone_filtering_mock():
         assert f.offset_end <= zone_end
 
 
+# ── detect_batch ─────────────────────────────────────────────────────────────
+
+def test_detect_batch_returns_findings_for_all_targets():
+    """detect_batch flattens results from multiple targets."""
+    config = NERConfig(model="irrelevant", min_score=0.5, entity_types=["PER", "ORG"])
+    detector = NERDetector(config)
+    # Simulate service_url mode so no model is loaded
+    detector.service_url = "http://mock"
+
+    targets = [
+        ScanTarget(file_path="a.txt", content="Written by John Smith."),
+        ScanTarget(file_path="b.txt", content="Approved by Jane Doe."),
+    ]
+
+    fake_responses = [
+        [{"entity_group": "PER", "score": 0.9, "word": "John Smith", "start": 11, "end": 21}],
+        [{"entity_group": "PER", "score": 0.9, "word": "Jane Doe",   "start": 12, "end": 20}],
+    ]
+    with patch.object(detector, "_infer_batch", return_value=fake_responses) as mock_infer:
+        findings = detector.detect_batch(targets)
+
+    assert len(findings) == 2
+    assert findings[0].file_path == "a.txt"
+    assert findings[1].file_path == "b.txt"
+    mock_infer.assert_called_once()
+
+
+def test_detect_batch_deduplicates_per_target():
+    """Overlapping chunks from the same target produce one finding per span."""
+    config = NERConfig(model="irrelevant", min_score=0.5, entity_types=["PER"])
+    detector = NERDetector(config)
+    detector.service_url = "http://mock"
+
+    content = "By John Smith here."
+    targets = [ScanTarget(file_path="f.txt", content=content)]
+
+    # Two identical entities (as if from overlapping chunks)
+    duplicate_response = [
+        [
+            {"entity_group": "PER", "score": 0.9, "word": "John Smith", "start": 3, "end": 13},
+            {"entity_group": "PER", "score": 0.9, "word": "John Smith", "start": 3, "end": 13},
+        ]
+    ]
+    with patch.object(detector, "_infer_batch", return_value=duplicate_response):
+        findings = detector.detect_batch(targets)
+
+    assert len(findings) == 1
+
+
+def test_detect_batch_empty_targets_returns_empty():
+    config = NERConfig(model="irrelevant", min_score=0.5, entity_types=["PER"])
+    detector = NERDetector(config)
+    detector.service_url = "http://mock"
+    assert detector.detect_batch([]) == []
+
+
+def test_detect_batch_respects_keep_list():
+    """Entities whose word is on the keep-list are not emitted."""
+    config = NERConfig(model="irrelevant", min_score=0.5, entity_types=["ORG"])
+    detector = NERDetector(config, keep={"acme"})
+    detector.service_url = "http://mock"
+
+    targets = [ScanTarget(file_path="x.txt", content="Acme Corp did it.")]
+    fake = [[{"entity_group": "ORG", "score": 0.9, "word": "Acme", "start": 0, "end": 4}]]
+    with patch.object(detector, "_infer_batch", return_value=fake):
+        findings = detector.detect_batch(targets)
+
+    assert findings == []
+
+
+def test_detect_batch_zoned_targets():
+    """Zones are respected: only zone text is sent, offsets are absolute."""
+    config = NERConfig(model="irrelevant", min_score=0.5, entity_types=["PER"])
+    detector = NERDetector(config)
+    detector.service_url = "http://mock"
+
+    content = "code(); // John Smith fixed this\nmore code"
+    zone_start = content.index("//")
+    zone_end = content.index("\n")
+    targets = [ScanTarget(file_path="z.py", content=content, zones=[Zone(start=zone_start, end=zone_end)])]
+
+    # Offset inside zone text ("John Smith" starts at index 3 within the zone slice)
+    zone_text = content[zone_start:zone_end]
+    js_local_start = zone_text.index("John")
+    fake = [[{"entity_group": "PER", "score": 0.9, "word": "John Smith",
+              "start": js_local_start, "end": js_local_start + 10}]]
+    with patch.object(detector, "_infer_batch", return_value=fake):
+        findings = detector.detect_batch(targets)
+
+    assert len(findings) == 1
+    # offset_start must be absolute in the full content
+    assert findings[0].offset_start == zone_start + js_local_start
+
+
 def test_gliner_missing_package_raises():
     config = _make_gliner_config()
     detector = NERDetector(config)

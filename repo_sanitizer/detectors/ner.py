@@ -349,6 +349,85 @@ class NERDetector(Detector):
         brandish = [t for t in tokens if t not in _GENERIC_ORG_TOKENS]
         return bool(brandish) and all(t in self.keep for t in brandish)
 
+    def detect_batch(self, targets: list[ScanTarget]) -> list[Finding]:
+        """Run NER over many targets in a single batched inference call.
+
+        All text chunks from all targets are flattened into one list, sent to
+        the model (or HTTP service) in one request, then mapped back to
+        per-target Findings.  Use this instead of calling detect() in a tight
+        loop when per-call model-invocation overhead dominates (e.g. scanning
+        thousands of history blobs).
+        """
+        if not targets:
+            return []
+        if not self.service_url:
+            if self.config.backend == "gliner":
+                self._ensure_gliner()
+            else:
+                self._ensure_pipeline()
+
+        # Build a flat chunk list that records which target each chunk came from.
+        chunk_meta: list[tuple[int, int]] = []  # (target_idx, base_offset)
+        chunk_texts: list[str] = []
+        for t_idx, target in enumerate(targets):
+            if target.is_zoned:
+                for zone in target.zones:
+                    text = target.content[zone.start : zone.end]
+                    if not text.strip():
+                        continue
+                    for c_offset, c_text in self._chunk_text(text):
+                        chunk_meta.append((t_idx, zone.start + c_offset))
+                        chunk_texts.append(c_text)
+            else:
+                if not target.content.strip():
+                    continue
+                for c_offset, c_text in self._chunk_text(target.content):
+                    chunk_meta.append((t_idx, c_offset))
+                    chunk_texts.append(c_text)
+
+        if not chunk_texts:
+            return []
+
+        try:
+            batch_results = self._infer_batch(chunk_texts)
+        except Exception as e:
+            logger.warning("NER batch inference error: %s", e)
+            return []
+
+        raw: dict[int, list[Finding]] = {}
+        for (t_idx, base_offset), entities in zip(chunk_meta, batch_results):
+            target = targets[t_idx]
+            for entity in entities:
+                label = entity.get("entity_group", "")
+                if label not in self.config.entity_types or label not in LABEL_MAP:
+                    continue
+                if entity.get("score", 0) < self.config.min_score:
+                    continue
+                word = entity.get("word", "").strip()
+                if len(word) < 3 or self._is_kept_org(word.lower()):
+                    continue
+                start = base_offset + entity["start"]
+                end = base_offset + entity["end"]
+                category, severity = LABEL_MAP[label]
+                line = target.content[: base_offset + entity["start"]].count("\n") + 1
+                raw.setdefault(t_idx, []).append(
+                    Finding(
+                        detector="NERDetector",
+                        category=category,
+                        severity=severity,
+                        file_path=target.file_path,
+                        line=line,
+                        offset_start=start,
+                        offset_end=end,
+                        matched_value=word,
+                    )
+                )
+
+        all_findings: list[Finding] = []
+        for t_idx in sorted(raw):
+            all_findings.extend(self._deduplicate(raw[t_idx]))
+        return all_findings
+
     @staticmethod
     def _deduplicate(findings: list[Finding]) -> list[Finding]:
         seen: set[tuple[int, int]] = set()
