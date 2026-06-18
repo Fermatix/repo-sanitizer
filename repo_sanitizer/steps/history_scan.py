@@ -19,6 +19,8 @@ def run_history_scan(
     report_name: str = "history_scan_pre.json",
 ) -> list[Finding]:
     """Scan commit metadata (author, email, message) for PII."""
+    from repo_sanitizer.detectors.secrets import SecretsDetector
+
     all_findings: list[Finding] = []
     detector_times: dict[str, float] = {type(d).__name__: 0.0 for d in detectors}
     work_dir = ctx.work_dir
@@ -64,7 +66,11 @@ def run_history_scan(
                         f.compute_hash(ctx.salt)
                     all_findings.extend(findings)
                 except Exception:
-                    pass
+                    # FAIL CLOSED for secrets (under --ner-scope all the
+                    # SecretsDetector scans commit metadata too): a gitleaks
+                    # failure must abort, not be swallowed into a missed secret.
+                    if isinstance(detector, SecretsDetector):
+                        raise
                 finally:
                     detector_times[type(detector).__name__] += time.perf_counter() - t0
 
@@ -82,7 +88,11 @@ def run_history_scan(
                         f.compute_hash(ctx.salt)
                     all_findings.extend(findings)
                 except Exception:
-                    pass
+                    # FAIL CLOSED for secrets (under --ner-scope all the
+                    # SecretsDetector scans commit metadata too): a gitleaks
+                    # failure must abort, not be swallowed into a missed secret.
+                    if isinstance(detector, SecretsDetector):
+                        raise
                 finally:
                     detector_times[type(detector).__name__] += time.perf_counter() - t0
 
