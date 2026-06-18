@@ -7,31 +7,43 @@ patterns:
   # ════════════════════════════════════════════════════════════════
 
   - name: email
-    pattern: '[a-zA-Z0-9_.+%-]+@[a-zA-Z0-9-]+\.(?!invalid\b)[a-zA-Z0-9-.]+'
+    # Genuine emails only. After the TLD, three lookaheads anchor the match:
+    #  (?![A-Za-z0-9])     — TLD label is complete (next char isn't alnum);
+    #  (?!\.[A-Za-z0-9])   — and is the LAST label: forbids stopping short of the
+    #                        real TLD (so git@gitlab.example.com:a/b.git can't
+    #                        match `git@gitlab.example`), while still ALLOWING a
+    #                        trailing sentence-dot `foo@bar.com.` (the `.` is not
+    #                        followed by another label);
+    #  (?!:[^\s@]*/)       — SSH-remote guard: skips ONLY `git@host:owner/repo`
+    #                        remotes (a `:` then a path with a `/`); a real email
+    #                        followed by `:word`/`:port` (no slash) is still masked.
+    # (?!invalid\b) keeps our own `@example.invalid` masks from re-matching.
+    pattern: '[a-zA-Z0-9_.+%-]+@(?:[a-zA-Z0-9-]+\.)+(?!invalid\b)[a-zA-Z]{2,}(?![A-Za-z0-9])(?!\.[A-Za-z0-9])(?!:[^\s@]*/)'
     category: PII
     severity: HIGH
 
   - name: phone_e164
     # Strict E.164: +12345678901  +442071234567  +79161234567
-    pattern: '\+[1-9]\d{6,14}'
+    # Alnum-boundary lookarounds so a '+1…' digit run inside base64/hex is not
+    # mistaken for a phone.
+    pattern: '(?<![0-9A-Za-z])\+[1-9]\d{6,14}(?![0-9A-Za-z])'
     category: PII
     severity: HIGH
 
   - name: phone_ru
     # Russian mobile / landline: 8-XXX-XXX-XX-XX  or  8XXXXXXXXXX
-    pattern: '(?:8|\+7)[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}'
+    # Alnum-boundary lookarounds so a digit run inside a hex/base64 hash or an
+    # all-digit version string is not mistaken for a phone number.
+    pattern: '(?<![0-9A-Za-z])(?:8|\+7)[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}(?![0-9A-Za-z])'
     category: PII
     severity: HIGH
 
-  - name: ipv4
-    pattern: '\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b'
-    category: PII
-    severity: MEDIUM
-
-  - name: ipv4_with_port
-    pattern: '\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?):\d{2,5}\b'
-    category: PII
-    severity: MEDIUM
+  # IPv4/IPv6 are intentionally NOT regex-PII patterns: a blanket IP regex masks
+  # loopback/private build infra (127.0.0.1, 192.168.x) and breaks builds. PUBLIC
+  # IPs (the real deployment fingerprints) are handled keep-aware + public-only by
+  # EndpointDetector (working tree + history-blob scan) AND by the Scrubber's
+  # public-IP pass over EVERY history blob (incl. SVG/oversized blobs the scan
+  # skips). See detectors/endpoint.py::_is_public_ip and redaction/history_ops.py.
 
   - name: ssn
     # US Social Security Number: 123-45-6789
@@ -188,14 +200,27 @@ patterns:
     category: SECRET
     severity: CRITICAL
 
+  - name: secret_url_param
+    # Secret-bearing query parameter in any URL (?token=… &api_key=… &signature=…),
+    # incl. AWS/GCP presigned-URL credential params (X-Amz-Signature / X-Amz-
+    # Credential / X-Amz-Security-Token / X-Goog-Signature). Replaces the
+    # credential-carrying-URL coverage the removed blanket `https_url` gave,
+    # WITHOUT masking plain build URLs (nuget/pypi/maven/xmlns) that carry no
+    # secret param. Matches the whole `?name=value` span (value included).
+    pattern: '(?i)[?&](?:x-amz-signature|x-amz-security-token|x-amz-credential|x-goog-signature|access[_-]?token|api[_-]?key|auth|client[_-]?secret|credential|key|passwd|password|pwd|secret|security[_-]?token|signature|sig|token)=[^&\s"''<>]+'
+    category: SECRET
+    severity: HIGH
+
   # ════════════════════════════════════════════════════════════════
   # ENDPOINTS — Connection strings, internal URLs
   # ════════════════════════════════════════════════════════════════
 
-  - name: https_url
-    pattern: 'https?://[^\s"''<>\])}{\s]+'
-    category: ENDPOINT
-    severity: MEDIUM
+  # `https_url` (blanket http(s):// matcher) was REMOVED — it masked every URL
+  # incl. public package infra (nuget/pypi/nodesource/maven) and schema xmlns,
+  # breaking builds, without identifying anyone. Credentialed/internal URLs stay
+  # covered below (db_connection_*/jdbc_url/basic_auth_in_url/internal_corp_url)
+  # and secret-bearing URLs by `secret_url_param` above. Company-identifying URLs
+  # fall to the brand/NER layer + the mandatory Pass-2/codex audit.
 
   - name: db_connection_postgresql
     pattern: 'postgres(?:ql)?://[^\s"''<>]+'
@@ -238,8 +263,14 @@ patterns:
   # ════════════════════════════════════════════════════════════════
 
   - name: jira_ticket
-    # JIRA-style: PROJECT-1234
-    pattern: '\b[A-Z]{2,10}-\d{1,6}\b'
+    # JIRA-style: PROJECT-1234. The negative lookahead excludes common
+    # standards/charset/spec tokens of the same UPPER-DIGITS shape (UTF-8,
+    # SHA-256, ISO-8601, RFC-2616, ECMA-262, BASE-64, HTTP-2, GB-2312, IEEE-754,
+    # PEP-8 …) — masking those into a placeholder corrupts build/config files
+    # (e.g. an XML/HTML `encoding="UTF-8"`). DICTIONARY/MEDIUM, so tightening is
+    # leak-safe (these are not PII). A real ticket key matching a listed prefix
+    # is the only (rare) cost.
+    pattern: '\b(?!(?:UTF|SHA|ISO|IEC|RFC|ECMA|BASE|HTTP|GB|EUC|UCS|IEEE|PEP|MD|CP|WIN|ANSI|TLS|SSL)-\d)[A-Z]{2,10}-\d{1,6}\b'
     category: DICTIONARY
     severity: MEDIUM
 
@@ -249,7 +280,6 @@ patterns:
     category: DICTIONARY
     severity: LOW
 
-  - name: uuid
-    pattern: '\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b'
-    category: DICTIONARY
-    severity: LOW
+  # `uuid` was REMOVED — GUIDs are opaque/non-identifying and masking them breaks
+  # .sln/MSBuild project references (dotnet build). Tenant/device-correlating
+  # UUIDs are a residual covered by the mandatory Pass-2/codex audit.

@@ -372,13 +372,24 @@ def run_apply_map(
     and path segment, then a fresh bundle is written. The mandatory Pass-2
     codex/agent audit still runs after this — apply-map is mechanical, not a gate.
     """
-    from repo_sanitizer.redaction.history_ops import load_brand_map
+    from repo_sanitizer.redaction.history_ops import detect_brand_map_collisions, load_brand_map
     from repo_sanitizer.steps.history_rewrite import run_brand_map_rewrite, verify_brand_map_applied
 
     rows = load_brand_map(brand_map_path)
     if not rows:
         logger.warning("Brand map %s has no usable rules — nothing to apply.", brand_map_path)
         return 1
+
+    # Advisory: ≥2 distinct brands collapsed onto one placeholder — the
+    # dup-identifier / invalid-`acme1,` Pass-2 failure mode. NOT a hard fail
+    # (tiered maps may reuse a placeholder across their own tiers); the mandatory
+    # coherence audit judges. Logged loudly here before any history is touched.
+    for replacement, patterns in detect_brand_map_collisions(rows).items():
+        logger.warning(
+            "brand-map collision: %d distinct patterns → %r: %s%s",
+            len(patterns), replacement,
+            ", ".join(patterns[:8]), " …" if len(patterns) > 8 else "",
+        )
 
     ctx = RunContext.create(
         source=source,
@@ -401,13 +412,24 @@ def run_apply_map(
     elapsed = time.perf_counter() - t_total
     bundle = ctx.out_dir / "output" / "sanitized.bundle"
     if survivors:
-        logger.error(
-            "apply-map: %d brand-map pattern(s) STILL MATCH after rewrite (incomplete "
-            "application): %s%s",
-            len(survivors),
-            ", ".join(survivors[:10]),
-            " …" if len(survivors) > 10 else "",
-        )
+        brand_survivors = [s for s in survivors if not s.startswith("json-invalid:")]
+        json_failures = [s for s in survivors if s.startswith("json-invalid:")]
+        if brand_survivors:
+            logger.error(
+                "apply-map: %d brand-map pattern(s) STILL MATCH after rewrite (incomplete "
+                "application): %s%s",
+                len(brand_survivors),
+                ", ".join(brand_survivors[:10]),
+                " …" if len(brand_survivors) > 10 else "",
+            )
+        if json_failures:
+            logger.error(
+                "apply-map: %d build manifest(s) became INVALID JSON after the brand rewrite: "
+                "%s%s",
+                len(json_failures),
+                ", ".join(json_failures[:10]),
+                " …" if len(json_failures) > 10 else "",
+            )
         logger.error("Bundle written to %s but apply-map FAILED verification (exit 1).", bundle)
         return 1
     logger.info("apply-map complete (%.1fs) → %s", elapsed, bundle)

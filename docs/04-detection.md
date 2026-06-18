@@ -112,11 +112,9 @@ The default rulepack (`examples/rules/regex/pii_patterns.yaml`) defines the foll
 
 | Name | Category | Severity | Description | Example match |
 |---|---|---|---|---|
-| `email` | PII | HIGH | Generic email address (excludes `.invalid` TLD) | `alice@company.com` |
-| `phone_e164` | PII | HIGH | E.164 international format | `+12025550100` |
-| `phone_ru` | PII | HIGH | Russian national formats | `+7 (495) 123-45-67` |
-| `ipv4` | ENDPOINT | MEDIUM | IPv4 address (4 octets) | `192.168.1.1` |
-| `ipv4_with_port` | ENDPOINT | MEDIUM | IPv4 with port | `10.0.0.1:8080` |
+| `email` | PII | HIGH | Genuine email (anchored TLD + `.invalid`/SSH-remote guards) | `alice@company.com` |
+| `phone_e164` | PII | HIGH | E.164 international (alnum-boundary guarded) | `+12025550100` |
+| `phone_ru` | PII | HIGH | Russian national formats (alnum-boundary guarded) | `+7 (495) 123-45-67` |
 | `ssn` | PII | HIGH | US Social Security Number | `123-45-6789` |
 | `credit_card` | PII | HIGH | Visa/Mastercard/Amex/Discover | `4111111111111111` |
 | `iban` | PII | HIGH | International Bank Account Number | `GB29NWBK60161331926819` |
@@ -149,15 +147,35 @@ The default rulepack (`examples/rules/regex/pii_patterns.yaml`) defines the foll
 | `telegram_bot_token` | SECRET | CRITICAL | Telegram bot token | `1234567890:AAxxxxxxx...` |
 | `generic_api_key` | SECRET | HIGH | Heuristic key=value assignment | `api_key = "secret123"` |
 | `basic_auth_in_url` | SECRET | CRITICAL | Credentials embedded in URL | `https://user:pass@api.example.com` |
+| `secret_url_param` | SECRET | HIGH | Secret-bearing URL query param | `https://h/p?token=abc123` |
 
 **Endpoint Patterns (via RegexPII):**
 
 | Name | Category | Severity | Description |
 |---|---|---|---|
-| `https_url` | ENDPOINT | MEDIUM | HTTP/HTTPS URL |
 | `db_connection_*` | ENDPOINT | HIGH | Database connection strings (postgres, mysql, mongodb, redis, amqp) |
 | `jdbc_url` | ENDPOINT | HIGH | JDBC connection string |
 | `internal_corp_url` | ENDPOINT | HIGH | URL with internal TLD |
+
+> **No blanket `https_url` / `ipv4` / `uuid` regex patterns.** A blanket URL/IP/
+> GUID regex over-masks non-identifying build infrastructure (public package
+> URLs, loopback/private IPs, `.sln` GUIDs) and breaks builds. Instead, network
+> locators are masked **keep-aware** by `EndpointDetector` + the history Scrubber
+> (§4.5): **public** IPs are masked (private/loopback/CGNAT/doc-range kept), and
+> **URL hosts** are masked — `https://[user@]<host>` → `https://<hash>.example.invalid`
+> (userinfo dropped; bracketed IPv6 captured whole so it never becomes
+> `[[ipv6:…]]`; non-ASCII IDN hosts masked too), path/query and file structure
+> intact — UNLESS the host is universal public infrastructure
+> (`UNIVERSAL_URL_HOSTS`, matched as a full suffix since those domains are
+> NON-multi-tenant; multi-tenant clouds like `*.googleapis.com`/`*.amazonaws.com`/
+> `*.github.io` are deliberately NOT allowlisted, so a customer-controlled
+> subdomain masks), a GENERIC single-label service name (`localhost`/`web`/`db`…;
+> a distinctive single-label machine name like `prod-payments-db` is masked), or
+> a non-public IP. Credential-bearing
+> URLs (`secret_url_param`, `basic_auth_in_url`) and internal ones
+> (`db_connection_*`, `internal_corp_url`) are still masked by regex. GUIDs are
+> non-identifying (kept); correlatable UUIDs and the brand inside a kept URL's
+> path are residuals for the brand/NER layer + the Pass-2 audit.
 
 **Dictionary Patterns (via RegexPII):**
 
@@ -165,7 +183,6 @@ The default rulepack (`examples/rules/regex/pii_patterns.yaml`) defines the foll
 |---|---|---|---|
 | `jira_ticket` | DICTIONARY | MEDIUM | Jira ticket reference (e.g., `PROJ-1234`) |
 | `github_issue_ref` | DICTIONARY | LOW | GitHub issue reference (`#123`, `org/repo#123`) |
-| `uuid` | DICTIONARY | LOW | UUID v4 format |
 
 ---
 

@@ -23,11 +23,26 @@ from __future__ import annotations
 import csv
 import hmac
 import io
+import ipaddress
 import json
+import logging
 import re
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Callable, Optional, Union
+
+# Single source of truth for "which IP is worth redacting". endpoint imports only
+# stdlib + the lightweight detectors.base, so this is safe to import inside the
+# git-filter-repo subprocess (where Scrubber is instantiated).
+from repo_sanitizer.detectors.endpoint import (
+    IPV4_PATTERN,
+    IPV6_PATTERN,
+    URL_HOST_PATTERN,
+    _is_kept_url_host,
+    _is_public_ip,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def hash12(salt: bytes, value: bytes, length: int = 12) -> str:
@@ -122,6 +137,30 @@ def compile_brand_map(rows: list[dict]) -> list[tuple[re.Pattern, str, bool]]:
             raise ValueError(f"invalid brand-map regex {pattern!r}: {e}") from e
         compiled.append((rx, row.get("replacement", ""), bool(row.get("preserve_case", False))))
     return compiled
+
+
+def detect_brand_map_collisions(rows: list[dict]) -> dict[str, list[str]]:
+    """Group brand-map rows by their replacement; return only the replacements
+    that ≥2 DISTINCT patterns map to (``{replacement: [pattern, ...]}``).
+
+    A collision is the signal for the Pass-2 failure mode where distinct brands
+    were collapsed onto one ``acmeN`` placeholder (dup identifiers / consts /
+    ``<string name>`` / invalid ``acme1,`` JSON) — things ``json.loads`` cannot
+    see. NOT necessarily a bug: a tiered map legitimately reuses one placeholder
+    across its own tiers (substring + word-boundary forms of the SAME brand), so
+    this is advisory (the caller logs a WARNING, never hard-fails)."""
+    by_replacement: dict[str, set[str]] = {}
+    for row in rows:
+        replacement = (row.get("replacement") or "").strip()
+        pattern = row.get("pattern") or ""
+        if not replacement or not pattern:
+            continue
+        by_replacement.setdefault(replacement, set()).add(pattern)
+    return {
+        repl: sorted(pats)
+        for repl, pats in by_replacement.items()
+        if len(pats) >= 2
+    }
 
 
 def _match_case(matched: str, replacement: str) -> str:
@@ -219,9 +258,28 @@ class Scrubber:
         binary_deny_extensions: Optional[list] = None,
         allow_suffixes: Optional[list] = None,
         rewrite_authors: bool = True,
+        keep: Optional[list] = None,
+        scrub_public_ips: bool = False,
+        scrub_urls: bool = False,
     ) -> None:
         self.salt = salt
         self.rewrite_authors = rewrite_authors
+
+        # Allowlisted IP/domain literals (lowercased), exempt from the IP/URL pass.
+        self._keep = {k.lower() for k in (keep or [])}
+        # Public-IP scrubbing replaces the removed regex `ipv4` rulepack pattern.
+        # Enabled ONLY for the Pass-1 sanitize rewrite; the Pass-3 apply-map pass
+        # stays brand-only. Byte regexes compiled from the (str) endpoint patterns
+        # — pure-ASCII, so .encode() round-trips; \w is ASCII in byte mode.
+        self._scrub_public_ips = bool(scrub_public_ips)
+        if self._scrub_public_ips:
+            self._ipv4_re = re.compile(IPV4_PATTERN.pattern.encode())
+            self._ipv6_re = re.compile(IPV6_PATTERN.pattern.encode())
+        # URL-host scrubbing: mask the host of any http(s) URL that is not
+        # universal public infra (see endpoint._is_kept_url_host). Pass-1 only.
+        self._scrub_urls = bool(scrub_urls)
+        if self._scrub_urls:
+            self._url_re = re.compile(URL_HOST_PATTERN.pattern.encode(), re.IGNORECASE)
 
         # PII patterns compiled as BYTE regexes (applied to raw blob bytes).
         self._email_re: Optional[re.Pattern] = None
@@ -289,6 +347,62 @@ class Scrubber:
                 lambda m, _n=name: b"[" + _n + b":" + hash12(self.salt, m.group()[:64]).encode() + b"]",
                 data,
             )
+        if self._scrub_urls:
+            data = self._scrub_url_hosts_bytes(data)
+        if self._scrub_public_ips:
+            data = self._scrub_public_ip_bytes(data)
+        return data
+
+    def _scrub_url_hosts_bytes(self, data: bytes) -> bytes:
+        """Mask a URL's userinfo+host when the host is not universal public infra
+        / kept (endpoint._is_kept_url_host) OR userinfo is present →
+        `<hash>.example.invalid`, keeping scheme/path/query and the surrounding
+        file structure intact (no `[...]` token, so YAML/XML stay parseable; a
+        bracketed IPv6 host is captured whole so it never becomes `[[ipv6:…]]`).
+        Runs over EVERY history blob — incl. SVG/oversized blobs the
+        inventory-bound scan skips. A host that does not decode as UTF-8 (or any
+        non-ASCII IDN host) is masked, not passed through."""
+        def _repl(m: "re.Match[bytes]") -> bytes:
+            scheme, userinfo, host = m.group(1), m.group(2), m.group(3)
+            try:
+                host_str = host.decode("utf-8")
+            except UnicodeDecodeError:
+                host_str = None
+            if not userinfo and host_str is not None and _is_kept_url_host(host_str, self._keep):
+                return m.group(0)
+            return scheme + hash12(self.salt, host).encode() + b".example.invalid"
+
+        return self._url_re.sub(_repl, data)
+
+    def _scrub_public_ip_bytes(self, data: bytes) -> bytes:
+        """Mask globally-routable IPv4/IPv6 literals (deployment fingerprints),
+        KEEPING private/loopback/reserved/CGNAT/doc-range and allowlisted IPs.
+
+        This is the ONLY public-IP coverage for blobs the inventory-bound
+        EndpointDetector scan skips (SVG, binary-allow, oversized text): the
+        rulepack `ipv4` regex was removed (it over-masked private build infra),
+        so this keep-aware, public-ONLY pass replaces it across every history
+        blob. "Which IP is worth redacting" stays defined once in
+        endpoint._is_public_ip. Runs LAST in the non-brand scrub, after any
+        connection-string / URL pattern has claimed its full match."""
+        def _repl(m: "re.Match[bytes]", prefix: bytes) -> bytes:
+            raw = m.group()
+            try:
+                value = raw.decode("ascii")
+            except UnicodeDecodeError:
+                return raw
+            if value.lower() in self._keep:
+                return raw
+            try:
+                ip = ipaddress.ip_address(value)
+            except ValueError:
+                return raw
+            if not _is_public_ip(ip):
+                return raw
+            return b"[" + prefix + b":" + hash12(self.salt, raw).encode() + b"]"
+
+        data = self._ipv4_re.sub(lambda m: _repl(m, b"ipv4"), data)
+        data = self._ipv6_re.sub(lambda m: _repl(m, b"ipv6"), data)
         return data
 
     def message(self, message: bytes) -> bytes:

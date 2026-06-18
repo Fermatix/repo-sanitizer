@@ -26,6 +26,17 @@ def test_rulepack_has_pii_patterns():
     assert "phone_e164" in names
 
 
+def test_rulepack_drops_overbroad_patterns():
+    """The blanket URL/IP/GUID patterns over-redact non-identifying build infra
+    and were removed; public-IP coverage moved into EndpointDetector + the
+    Scrubber, secret-URL coverage into `secret_url_param`."""
+    rp = load_rulepack(RULES_DIR)
+    names = {p.name for p in rp.pii_patterns}
+    for gone in ("ipv4", "ipv4_with_port", "https_url", "uuid"):
+        assert gone not in names, f"{gone} must be removed (over-redacts build files)"
+    assert "secret_url_param" in names
+
+
 def test_rulepack_has_ner_config():
     rp = load_rulepack(RULES_DIR)
     assert rp.ner.model
