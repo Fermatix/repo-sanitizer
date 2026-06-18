@@ -142,6 +142,17 @@ def run_scan(
     ts_files: list[str] = []
     fallback_files: list[str] = []
 
+    # Batch gitleaks: one whole-tree scan instead of a subprocess PER FILE
+    # (× convergence passes). A detector exposing prescan_tree caches its
+    # findings by path; its detect() then serves from the cache. On failure we
+    # log and leave the cache unset → that detector falls back to per-file.
+    for d in detectors:
+        if hasattr(d, "prescan_tree"):
+            try:
+                d.prescan_tree(ctx.work_dir)
+            except Exception as e:
+                logger.warning("gitleaks tree prescan failed (per-file fallback): %s", e)
+
     for item in ctx.inventory:
         if item.action != FileAction.SCAN:
             continue

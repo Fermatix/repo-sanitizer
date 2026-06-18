@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -70,6 +71,52 @@ class SecretsDetector(Detector):
         # detection. Constructing happens in build_detectors (outside that
         # try/except), so raising here fails the pipeline closed at startup.
         self._validate()
+        # {relpath: [gitleaks_item,...]} from a one-shot whole-tree scan set by
+        # prescan_tree(). When set, detect() serves from it instead of spawning
+        # gitleaks PER FILE (thousands of spawns × convergence passes). None =
+        # per-file fallback (e.g. history-blob scan, which has no work-tree).
+        self._cache: dict | None = None
+
+    def prescan_tree(self, work_dir) -> None:
+        """Run gitleaks ONCE over the whole work tree; cache findings by relpath.
+
+        Same config/flags as the per-file detect() path (self-mask allowlist +
+        --ignore-gitleaks-allow), so results are identical — only batched. Raises
+        on a fatal gitleaks failure (no report); run_scan catches it and falls
+        back to per-file scanning. Callers that want the strict per-file path
+        simply don't call this (cache stays None).
+        """
+        work_dir = Path(work_dir)
+        cache: dict[str, list] = {}
+        with tempfile.TemporaryDirectory() as cfgdir:
+            report_file = Path(cfgdir) / "report.json"
+            cfg_file = Path(cfgdir) / "gitleaks.toml"
+            cfg_file.write_text(build_gitleaks_config(allowlist_masks=True), encoding="utf-8")
+            subprocess.run(
+                ["gitleaks", "detect", "--no-git", "--source", str(work_dir),
+                 "--config", str(cfg_file), "--ignore-gitleaks-allow",
+                 "--report-format", "json", "--report-path", str(report_file)],
+                capture_output=True, text=True,
+            )
+            if not report_file.exists():
+                raise RuntimeError(
+                    "gitleaks did not produce a report during tree prescan "
+                    "(fatal config/install error)."
+                )
+            try:
+                items = json.loads(report_file.read_text() or "[]")
+            except json.JSONDecodeError:
+                items = []
+            for it in items:
+                raw = it.get("File") or ""
+                # gitleaks reports an ABSOLUTE path; map to the relative path used
+                # by ScanTarget.file_path (== inventory item.path).
+                try:
+                    rel = os.path.relpath(raw, str(work_dir))
+                except ValueError:
+                    rel = raw
+                cache.setdefault(rel.replace("\\", "/"), []).append(it)
+        self._cache = cache
 
     def _validate(self) -> None:
         # A high-entropy generic key reliably flagged by gitleaks (generic-api-key).
@@ -104,6 +151,33 @@ class SecretsDetector(Detector):
                 )
 
     def detect(self, target: ScanTarget) -> list[Finding]:
+        # Fast path: serve from the one-shot whole-tree prescan cache (set by
+        # prescan_tree) instead of spawning gitleaks per file. Builds Findings
+        # identically to the per-file path below.
+        if self._cache is not None:
+            findings = []
+            for item in self._cache.get(target.file_path, []):
+                secret = item.get("Secret", "")
+                start_line = item.get("StartLine", 1)
+                end_line = item.get("EndLine", start_line)
+                start_col = item.get("StartColumn", 0)
+                end_col = item.get("EndColumn", 0)
+                offset_start = _find_offset(target.content, start_line, start_col)
+                offset_end = _find_offset(target.content, end_line, end_col)
+                if self._in_zones(target, offset_start, offset_end):
+                    findings.append(
+                        Finding(
+                            detector="SecretsDetector",
+                            category=Category.SECRET,
+                            severity=Severity.CRITICAL,
+                            file_path=target.file_path,
+                            line=start_line,
+                            offset_start=offset_start,
+                            offset_end=offset_end,
+                            matched_value=secret,
+                        )
+                    )
+            return findings
         with tempfile.TemporaryDirectory() as tmpdir, \
                 tempfile.TemporaryDirectory() as cfgdir:
             tmp_file = Path(tmpdir) / Path(target.file_path).name
