@@ -262,23 +262,15 @@ patterns:
   # DICTIONARY — Internal identifiers (ticket numbers, refs)
   # ════════════════════════════════════════════════════════════════
 
-  - name: jira_ticket
-    # JIRA-style: PROJECT-1234. The negative lookahead excludes common
-    # standards/charset/spec tokens of the same UPPER-DIGITS shape (UTF-8,
-    # SHA-256, ISO-8601, RFC-2616, ECMA-262, BASE-64, HTTP-2, GB-2312, IEEE-754,
-    # PEP-8 …) — masking those into a placeholder corrupts build/config files
-    # (e.g. an XML/HTML `encoding="UTF-8"`). DICTIONARY/MEDIUM, so tightening is
-    # leak-safe (these are not PII). A real ticket key matching a listed prefix
-    # is the only (rare) cost.
-    pattern: '\b(?!(?:UTF|SHA|ISO|IEC|RFC|ECMA|BASE|HTTP|GB|EUC|UCS|IEEE|PEP|MD|CP|WIN|ANSI|TLS|SSL)-\d)[A-Z]{2,10}-\d{1,6}\b'
-    category: DICTIONARY
-    severity: MEDIUM
-
-  - name: github_issue_ref
-    # #123  or  org/repo#123
-    pattern: '(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#\d{1,6}'
-    category: DICTIONARY
-    severity: LOW
+  # `jira_ticket` (PROJECT-1234) and `github_issue_ref` (#123 / org/repo#123) were
+  # REMOVED from Pass-1. Both are NOT PII and over-matched domain/standards codes of
+  # the same shape: the `[A-Z]{2,10}-\d` ticket shape hit metallurgical/test codes
+  # (KCU-70, KCV-40, KV-20, TK-1) and the standards-prefix denylist could never be
+  # exhaustive; the bare `#\d` issue shape hit Javadoc/comment enumerators (e.g. the
+  # Russian `Значения #1`, `#2`). An internal JIRA PROJECT key is brand-adjacent
+  # (it names the internal project) and is therefore the Pass-2 brand map's job
+  # (Option A: Pass-1 rewrites no brands); a bare `#123` issue ref is not identifying.
+  # Keeping these in Pass-1 only produced false positives that corrupt code/comments.
 
   # `uuid` was REMOVED — GUIDs are opaque/non-identifying and masking them breaks
   # .sln/MSBuild project references (dotnet build). Tenant/device-correlating

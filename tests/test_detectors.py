@@ -184,16 +184,28 @@ def test_regex_secret_url_param_matches_aws_presigned(regex_detector):
     assert any("X-Goog-Signature=def456" in v for v in vals2), vals2
 
 
-def test_regex_jira_ticket_skips_standards_tokens(regex_detector):
-    # codex must-fix: UTF-8 / SHA-256 / ISO-8601 must NOT be masked as tickets
-    for tok in ("UTF-8", "UTF-16", "SHA-256", "ISO-8601", "RFC-2616", "ECMA-262", "BASE-64", "HTTP-2"):
-        vals = _matched(regex_detector, f'encoding "{tok}" here')
-        assert tok not in vals, f"{tok} wrongly masked as jira_ticket: {vals}"
+def test_regex_ticket_and_issue_shapes_not_masked(regex_detector):
+    # jira_ticket (PROJECT-1234) + github_issue_ref (#123) were REMOVED from Pass-1:
+    # they are not PII and over-matched domain/standards codes of the same shape.
+    # Standards/charset tokens, metallurgical/test domain codes, and bare issue
+    # enumerators must ALL pass through untouched.
+    for tok in (
+        "UTF-8", "SHA-256", "ISO-8601", "RFC-2616", "BASE-64", "HTTP-2",   # standards
+        "KCU-70", "KCV-40", "KV-20", "TK-1",                               # domain test codes
+    ):
+        vals = _matched(regex_detector, f'code "{tok}" here')
+        assert tok not in vals, f"{tok} wrongly masked (ticket/issue shapes removed): {vals}"
+    # bare issue-ref enumerators (incl. Russian Javadoc) must not be masked
+    for txt in ("Значения #1", "see #2 below"):
+        vals = _matched(regex_detector, txt)
+        assert not any("#" in v for v in vals), vals
 
 
-def test_regex_jira_ticket_still_matches_real_key(regex_detector):
+def test_regex_ticket_key_is_pass2_job_not_pass1_pii(regex_detector):
+    # A real JIRA PROJECT key names the internal project (brand-adjacent) and is the
+    # Pass-2 brand map's responsibility (Option A), not a Pass-1 PII rewrite.
     vals = _matched(regex_detector, "fixes PROJ-1234 and ABC-42")
-    assert "PROJ-1234" in vals and "ABC-42" in vals
+    assert "PROJ-1234" not in vals and "ABC-42" not in vals
 
 
 # ── Cyrillic zone gating (byte-vs-char regression) ───────────────────────────
@@ -229,6 +241,29 @@ def test_dictionary_cyrillic_term_in_zone(ts_extractor):
     matches = [f for f in findings if f.matched_value == "Москерам"]
     assert matches, "Cyrillic brand term inside a string zone must be detected"
     assert content[matches[0].offset_start:matches[0].offset_end] == "Москерам"
+
+
+def test_endpoint_domain_word_not_matched_on_code_identifier(ts_extractor):
+    # Regression for the zone-aware history scan: a bare domains.txt word (`exchange`)
+    # must NOT flag the Java code identifier `restTemplate.exchange` (a non-zone code
+    # position) — only domains inside string/comment zones. Without zones this match
+    # was rewritten across all history, breaking the delivered HEAD build.
+    from repo_sanitizer.detectors.endpoint import EndpointDetector
+
+    detector = EndpointDetector(["exchange"], keep=set())
+    content = (
+        "class C {\n"
+        "  void m() {\n"
+        "    var r = restTemplate.exchange(uri);\n"  # code identifier — must NOT match
+        '    var s = "host.exchange";\n'              # inside a string zone — MUST match
+        "  }\n"
+        "}\n"
+    )
+    zones = ts_extractor.extract_zones("C.java", content)
+    target = ScanTarget(file_path="C.java", content=content, zones=zones)
+    vals = [f.matched_value for f in detector.detect(target)]
+    assert not any("restTemplate.exchange" in v for v in vals), vals
+    assert any("host.exchange" in v for v in vals), vals
 
 
 # ── gitleaks column → char offset (Fix C) ────────────────────────────────────
