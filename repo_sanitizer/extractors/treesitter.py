@@ -829,7 +829,38 @@ class TreeSitterExtractor:
                     f"is not available in tree-sitter-language-pack "
                     f"(pip install tree-sitter-language-pack)"
                 )
-        parser = tree_sitter.Parser(ts_language)
+        # The standalone-package path (above) wraps a PyCapsule with the locally
+        # installed tree_sitter, so ts_language is always THIS process's
+        # tree_sitter.Language. The language-pack fallback, however, returns a
+        # Language minted by its own bundled tree-sitter build; if that build's
+        # ABI diverges from the installed tree-sitter the object is a foreign
+        # `builtins.Language`, and tree_sitter.Parser(ts_language) raises a
+        # TypeError. That TypeError is not a RuntimeError, so it would escape
+        # extract_zones' RuntimeError-only handler and abort the whole scan
+        # instead of degrading to the regex fallback. Validate the type and
+        # guard construction, re-raising as RuntimeError so on_parse_error is
+        # honored and the operator gets an actionable message.
+        if not isinstance(ts_language, tree_sitter.Language):
+            ts_version = getattr(tree_sitter, "__version__", "unknown")
+            raise RuntimeError(
+                f"Grammar for '{lang.id}' produced a "
+                f"{type(ts_language).__module__}.{type(ts_language).__qualname__}, "
+                f"not this process's tree_sitter.Language — a tree-sitter ABI "
+                f"mismatch (commonly tree-sitter-language-pack built against a "
+                f"different tree-sitter than the installed {ts_version}). Reinstall "
+                f"matched grammars (e.g. `pip install --force-reinstall "
+                f"tree-sitter-language-pack`) or add the standalone grammar "
+                f"'{lang.grammar_package}'."
+            )
+        try:
+            parser = tree_sitter.Parser(ts_language)
+        except TypeError as e:
+            raise RuntimeError(
+                f"Failed to construct a tree-sitter Parser for '{lang.id}': {e}. "
+                f"Likely a tree-sitter ABI mismatch on the grammar object — reinstall "
+                f"'{lang.grammar_package}' / tree-sitter-language-pack against the "
+                f"installed tree-sitter."
+            ) from e
         self._parsers[lang.id] = (parser, ts_language, lang)
         return self._parsers[lang.id]
 

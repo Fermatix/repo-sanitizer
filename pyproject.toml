@@ -15,6 +15,14 @@ dependencies = [
     "tree-sitter-python>=0.23",
     "tree-sitter-javascript>=0.23",
     "tree-sitter-typescript>=0.23",
+    # PHP is the dominant language in the GitLab repos we batch-sanitize; ship its
+    # standalone grammar so .php files take the ABI-safe capsule path (a PyCapsule
+    # re-wrapped by the locally installed tree_sitter) instead of the
+    # tree-sitter-language-pack fallback, whose prebuilt ABI can diverge from the
+    # installed tree-sitter and crash. No standalone tree-sitter-vue wheel exists
+    # on PyPI, so .vue files still use the language-pack path (handled gracefully
+    # by _get_parser's ABI guard → regex fallback when mismatched).
+    "tree-sitter-php>=0.23",
     "transformers>=4.30",
     "torch>=2.0",
     "git-filter-repo>=2.38",
