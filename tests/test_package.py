@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 from repo_sanitizer.context import RunContext
+from repo_sanitizer.steps._git_utils import materialize_local_branches
 from repo_sanitizer.steps.package import run_package
 
 
@@ -60,12 +61,22 @@ def test_package_includes_all_branch_refs_and_commits(tmp_path: Path, rules_path
     assert "main" in heads_before
     assert "dev" not in heads_before
 
+    # New contract: branch materialization is fetch's / ref-reconcile's job, NOT
+    # package's. package bundles the LOCAL heads + HEAD only (never --all, which
+    # would re-include tags + remote-tracking refs). Mirror what fetch does, then
+    # add a tag to prove package does NOT ship it.
+    materialize_local_branches(ctx.work_dir)
+    _run(["git", "tag", "v1.0"], ctx.work_dir)
+
     bundle_path = run_package(ctx)
     assert bundle_path.exists()
 
     bundle_heads = _run(["git", "bundle", "list-heads", str(bundle_path)], tmp_path).stdout
     assert "refs/heads/main" in bundle_heads
     assert "refs/heads/dev" in bundle_heads
+    # No tags, no remote-tracking refs ship in the bundle.
+    assert "refs/tags/" not in bundle_heads
+    assert "refs/remotes/" not in bundle_heads
 
     clone_dir = tmp_path / "clone"
     _run(["git", "clone", str(bundle_path), str(clone_dir)], tmp_path)

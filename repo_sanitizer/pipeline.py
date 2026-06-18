@@ -17,6 +17,7 @@ from repo_sanitizer.steps.history_scan import run_history_scan
 from repo_sanitizer.steps.inventory import run_inventory
 from repo_sanitizer.steps.package import run_package
 from repo_sanitizer.steps.redact import run_redact
+from repo_sanitizer.steps.ref_reconcile import run_ref_reconcile
 from repo_sanitizer.steps.scan import build_detectors, run_scan
 
 logger = logging.getLogger(__name__)
@@ -215,6 +216,14 @@ def run_sanitize(
     ctx.timings["steps"]["history_rewrite"] = round(elapsed, 3)
     logger.info("History rewritten (%.1fs)", elapsed)
 
+    # Step 7b: Reconcile refs — keep ALL branches (best-effort scrubbed names),
+    # drop tags/remotes/replace, set HEAD. Runs BEFORE the post-scans so the
+    # verification + secret gate certify exactly the shipped ref set (heads only),
+    # not content in tags/remotes that will not ship.
+    t0 = time.perf_counter()
+    run_ref_reconcile(ctx)
+    ctx.timings["steps"]["ref_reconcile"] = round(time.perf_counter() - t0, 3)
+
     # Step 8 + 8b: History post-scans (verification — silent)
     t0 = time.perf_counter()
     ctx.history_post_findings = run_history_scan(
@@ -372,13 +381,24 @@ def run_apply_map(
     and path segment, then a fresh bundle is written. The mandatory Pass-2
     codex/agent audit still runs after this — apply-map is mechanical, not a gate.
     """
-    from repo_sanitizer.redaction.history_ops import load_brand_map
+    from repo_sanitizer.redaction.history_ops import detect_brand_map_collisions, load_brand_map
     from repo_sanitizer.steps.history_rewrite import run_brand_map_rewrite, verify_brand_map_applied
 
     rows = load_brand_map(brand_map_path)
     if not rows:
         logger.warning("Brand map %s has no usable rules — nothing to apply.", brand_map_path)
         return 1
+
+    # Advisory: ≥2 distinct brands collapsed onto one placeholder — the
+    # dup-identifier / invalid-`acme1,` Pass-2 failure mode. NOT a hard fail
+    # (tiered maps may reuse a placeholder across their own tiers); the mandatory
+    # coherence audit judges. Logged loudly here before any history is touched.
+    for replacement, patterns in detect_brand_map_collisions(rows).items():
+        logger.warning(
+            "brand-map collision: %d distinct patterns → %r: %s%s",
+            len(patterns), replacement,
+            ", ".join(patterns[:8]), " …" if len(patterns) > 8 else "",
+        )
 
     ctx = RunContext.create(
         source=source,
@@ -396,18 +416,33 @@ def run_apply_map(
     # Verify the map FULLY applied (a surviving pattern = a blob/path the rewrite
     # could not decode/rewrite). Does NOT certify brand-completeness — a brand the
     # map never listed is the mandatory Pass-2 codex/agent audit's job.
+    # Keep all branches (now also brand-scrubbing their NAMES), drop tags/remotes,
+    # set HEAD — BEFORE verification so verify scopes to the shipped refs (heads)
+    # only, not content in tags/remotes that will not ship.
+    run_ref_reconcile(ctx, brand_map_rows=rows)
     survivors = verify_brand_map_applied(ctx, rows)
     run_package(ctx)
     elapsed = time.perf_counter() - t_total
     bundle = ctx.out_dir / "output" / "sanitized.bundle"
     if survivors:
-        logger.error(
-            "apply-map: %d brand-map pattern(s) STILL MATCH after rewrite (incomplete "
-            "application): %s%s",
-            len(survivors),
-            ", ".join(survivors[:10]),
-            " …" if len(survivors) > 10 else "",
-        )
+        brand_survivors = [s for s in survivors if not s.startswith("json-invalid:")]
+        json_failures = [s for s in survivors if s.startswith("json-invalid:")]
+        if brand_survivors:
+            logger.error(
+                "apply-map: %d brand-map pattern(s) STILL MATCH after rewrite (incomplete "
+                "application): %s%s",
+                len(brand_survivors),
+                ", ".join(brand_survivors[:10]),
+                " …" if len(brand_survivors) > 10 else "",
+            )
+        if json_failures:
+            logger.error(
+                "apply-map: %d build manifest(s) became INVALID JSON after the brand rewrite: "
+                "%s%s",
+                len(json_failures),
+                ", ".join(json_failures[:10]),
+                " …" if len(json_failures) > 10 else "",
+            )
         logger.error("Bundle written to %s but apply-map FAILED verification (exit 1).", bundle)
         return 1
     logger.info("apply-map complete (%.1fs) → %s", elapsed, bundle)

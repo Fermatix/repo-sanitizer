@@ -16,6 +16,10 @@ _CLEAN = {
     "ENDPOINTS": {"passed": True},
     "FORBIDDEN_FILES": {"passed": True},
     "CONFIGS": {"passed": True},
+    # Structural delivery invariants (added with keep-all-branches) — a real
+    # result.json always carries them; they block the batch push if red.
+    "NO_TAGS": {"passed": True},
+    "BRANCHES_PRESERVED": {"passed": True},
 }
 
 
@@ -42,6 +46,23 @@ def test_pii_and_endpoint_red_block(tmp_path):
         **_CLEAN, "PII_HIGH": {"passed": False}, "ENDPOINTS": {"passed": False}
     })
     assert _blocking_gate_failures(p) == ["ENDPOINTS", "PII_HIGH"]
+
+
+def test_no_tags_red_blocks(tmp_path):
+    p = _write(tmp_path / "r.json", {**_CLEAN, "NO_TAGS": {"passed": False}})
+    assert _blocking_gate_failures(p) == ["NO_TAGS"]
+
+
+def test_branches_preserved_red_blocks(tmp_path):
+    p = _write(tmp_path / "r.json", {**_CLEAN, "BRANCHES_PRESERVED": {"passed": False}})
+    assert _blocking_gate_failures(p) == ["BRANCHES_PRESERVED"]
+
+
+def test_clean_ref_names_red_is_advisory(tmp_path):
+    """A residual identifier in a branch NAME is advisory — keeping all branches
+    outranks it, so it must NOT block delivery."""
+    p = _write(tmp_path / "r.json", {**_CLEAN, "CLEAN_REF_NAMES": {"passed": False}})
+    assert _blocking_gate_failures(p) == []
 
 
 def test_missing_result_json_fails_closed(tmp_path):

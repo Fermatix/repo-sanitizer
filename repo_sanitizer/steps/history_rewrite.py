@@ -35,6 +35,9 @@ class FilterPlan:
     deny_globs: list = field(default_factory=list)
     binary_deny_extensions: list = field(default_factory=list)
     allow_suffixes: list = field(default_factory=list)         # never-delete suffixes
+    keep: list = field(default_factory=list)                   # allowlisted IP/domain literals
+    scrub_public_ips: bool = False                             # Pass-1 only (public-IP pass)
+    scrub_urls: bool = False                                   # Pass-1 only (non-allowlisted URL-host pass)
 
 
 def run_history_rewrite(ctx: RunContext) -> None:
@@ -42,6 +45,10 @@ def run_history_rewrite(ctx: RunContext) -> None:
     secret literals + deny/binary file deletion. Brands are NOT rewritten here
     (detection-only; the coherent brand→AcmeN map is applied later by ``apply-map``)."""
     rulepack: Rulepack = ctx.rulepack
+    # Same keep-set that scan.py feeds EndpointDetector — so the Scrubber's
+    # public-IP pass exempts exactly the allowlisted IP/domain literals.
+    from repo_sanitizer.steps.scan import build_brand_terms
+    _brand_terms, keep = build_brand_terms(rulepack)
     plan = FilterPlan(
         rewrite_authors=True,
         pii_pattern_defs=[(p.name, p.pattern.pattern) for p in rulepack.pii_patterns],
@@ -51,6 +58,9 @@ def run_history_rewrite(ctx: RunContext) -> None:
         deny_globs=rulepack.deny_globs,
         binary_deny_extensions=rulepack.binary_deny_extensions,
         allow_suffixes=rulepack.allow_suffixes,
+        keep=sorted(keep),
+        scrub_public_ips=True,
+        scrub_urls=True,
     )
     _run_filter_repo(ctx, plan, "_filter_repo_script.py", "history_rewrite_log.txt")
     logger.info("History rewrite complete")
@@ -283,17 +293,31 @@ def verify_brand_map_applied(ctx: RunContext, brand_map_rows: list, max_report: 
     # PATHS: every DISTINCT path across all commits — NOT via the blob-deduped
     # _collect_all_blobs (two paths sharing one blob would drop a brand path).
     # `git log --all --name-only` lists full paths (dir + file) for every
-    # add/modify/delete, so a brand in any dir or file name is checked.
+    # add/modify/delete, so a brand in any dir or file name is checked. The same
+    # path set drives the JSON-manifest check below.
     plog = subprocess.run(
         ["git", "log", "--all", "--pretty=format:", "--name-only"],
         cwd=str(work), capture_output=True, text=True,
     )
-    if plog.returncode == 0:
-        for path in {ln.strip() for ln in plog.stdout.splitlines() if ln.strip()}:
-            if _hits(path):
-                survivors.append(f"path:{path}")
-                if len(survivors) >= max_report:
-                    return survivors
+    distinct_paths = (
+        {ln.strip() for ln in plog.stdout.splitlines() if ln.strip()}
+        if plog.returncode == 0 else set()
+    )
+    for path in distinct_paths:
+        if _hits(path):
+            survivors.append(f"path:{path}")
+            if len(survivors) >= max_report:
+                return survivors
+
+    # JSON-manifest validity: a brand rewrite that mangles a strict-JSON build
+    # manifest (collapsing distinct keys → an invalid `acme1,`) is a Pass-2
+    # build-breaker apply-map must catch. Reported as `json-invalid:<path>@<sha>`
+    # so it contributes to the non-zero exit alongside brand survivors.
+    survivors.extend(
+        _json_manifest_failures(work, distinct_paths, max_report - len(survivors))
+    )
+    if len(survivors) >= max_report:
+        return survivors[:max_report]
 
     log = subprocess.run(
         ["git", "log", "--all", "--format=%B%x00"], cwd=str(work), capture_output=True, text=True
@@ -301,6 +325,65 @@ def verify_brand_map_applied(ctx: RunContext, brand_map_rows: list, max_report: 
     if log.returncode == 0 and log.stdout and _hits(log.stdout):
         survivors.append("commit-message")
     return survivors
+
+
+# Strict-JSON build manifests only — NOT JSONC (tsconfig*.json), whose legal
+# comments / trailing commas would false-fail json.loads.
+_STRICT_JSON_MANIFESTS = {
+    "package.json",
+    "package-lock.json",
+    "composer.json",
+    "composer.lock",
+}
+
+
+def _json_manifest_failures(work, distinct_paths: set[str], budget: int) -> list[str]:
+    """Return ``json-invalid:<path>@<sha>`` for every strict-JSON build manifest
+    whose content fails to parse, enumerating BY PATH (not the SHA-deduped blob
+    list — a manifest blob could otherwise be hidden behind a shared blob's
+    non-manifest representative path). Each manifest path's historical versions
+    are resolved to blob SHAs (deduped — identical bytes parse identically) and
+    parsed. ``json.loads`` does NOT flag duplicate keys; that semantic collision
+    is the map-build collision warning's job, not this build-breakage check."""
+    if budget <= 0:
+        return []
+    manifest_paths = {
+        p for p in distinct_paths if p.rsplit("/", 1)[-1] in _STRICT_JSON_MANIFESTS
+    }
+    if not manifest_paths:
+        return []
+
+    blob_to_path: dict[str, str] = {}
+    for path in manifest_paths:
+        commits = subprocess.run(
+            ["git", "log", "--all", "--format=%H", "--", path],
+            cwd=str(work), capture_output=True, text=True,
+        )
+        if commits.returncode != 0:
+            continue
+        for commit in commits.stdout.split():
+            rp = subprocess.run(
+                ["git", "rev-parse", f"{commit}:{path}"],
+                cwd=str(work), capture_output=True, text=True,
+            )
+            sha = rp.stdout.strip()
+            if rp.returncode == 0 and sha:
+                blob_to_path.setdefault(sha, path)
+
+    failures: list[str] = []
+    for sha, path in blob_to_path.items():
+        blob = subprocess.run(
+            ["git", "cat-file", "blob", sha], cwd=str(work), capture_output=True
+        )
+        if blob.returncode != 0:
+            continue
+        try:
+            json.loads(blob.stdout.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            failures.append(f"json-invalid:{path}@{sha[:8]}")
+            if len(failures) >= budget:
+                break
+    return failures
 
 
 def _run_filter_repo(
@@ -355,6 +438,9 @@ def _build_filter_script(plan: FilterPlan) -> str:
     binary_deny_repr = repr(list(plan.binary_deny_extensions))
     allow_suffixes_repr = repr(list(plan.allow_suffixes))
     rewrite_authors_repr = repr(bool(plan.rewrite_authors))
+    keep_repr = repr(list(plan.keep))
+    scrub_public_ips_repr = repr(bool(plan.scrub_public_ips))
+    scrub_urls_repr = repr(bool(plan.scrub_urls))
 
     return textwrap.dedent(
         f'''\
@@ -394,6 +480,9 @@ def _build_filter_script(plan: FilterPlan) -> str:
             binary_deny_extensions={binary_deny_repr},
             allow_suffixes={allow_suffixes_repr},
             rewrite_authors={rewrite_authors_repr},
+            keep={keep_repr},
+            scrub_public_ips={scrub_public_ips_repr},
+            scrub_urls={scrub_urls_repr},
         )
 
         args = fr.FilteringOptions.default_options()

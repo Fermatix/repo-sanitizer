@@ -10,6 +10,7 @@ from repo_sanitizer.redaction.history_ops import (
     apply_brand_map,
     apply_brand_map_bytes,
     compile_brand_map,
+    detect_brand_map_collisions,
     load_brand_map,
 )
 from repo_sanitizer.rulepack import load_rulepack
@@ -238,3 +239,194 @@ def test_load_brand_map_csv(tmp_path):
     p.write_text("pattern,replacement,is_regex,preserve_case\nfoo,bar,false,true\n,skipme,true,false\n")
     rows = load_brand_map(p)
     assert rows == [{"pattern": "foo", "replacement": "bar", "is_regex": False, "preserve_case": True}]
+
+
+# ── public-IP-aware scrub (Pass-1; replaces the removed regex `ipv4`) ───────────
+
+@pytest.fixture(scope="module")
+def ip_scrubber(pii_defs) -> Scrubber:
+    return Scrubber(SALT, pii_pattern_defs=pii_defs, scrub_public_ips=True, keep={"52.14.226.250"})
+
+
+def test_public_ipv4_scrubbed(ip_scrubber):
+    out = ip_scrubber.message(b"host 52.14.226.9 prod")
+    assert b"52.14.226.9" not in out
+    assert b"[ipv4:" in out
+
+
+def test_public_ipv6_scrubbed(ip_scrubber):
+    out = ip_scrubber.message(b"endpoint 2606:4700:4700::1111 here")
+    assert b"2606:4700:4700::1111" not in out
+    assert b"[ipv6:" in out
+
+
+@pytest.mark.parametrize(
+    "ip",
+    [b"127.0.0.1", b"192.168.1.10", b"10.0.0.5", b"172.16.0.9", b"100.64.0.1", b"203.0.113.5", b"8.8.8.8"],
+)
+def test_nonpublic_or_wellknown_ipv4_survives(ip_scrubber, ip):
+    out = ip_scrubber.message(b"bind " + ip + b":8080 here")
+    assert ip in out, f"{ip!r} (private/loopback/cgnat/doc/well-known-dns) must survive"
+
+
+def test_kept_public_ip_survives(ip_scrubber):
+    out = ip_scrubber.message(b"allow 52.14.226.250 only")
+    assert b"52.14.226.250" in out
+
+
+def test_ula_ipv6_survives(ip_scrubber):
+    out = ip_scrubber.message(b"v6 fd00::1 internal")
+    assert b"fd00::1" in out
+
+
+def test_public_ip_scrubbed_in_svg_like_blob(ip_scrubber):
+    """codex leak #1 regression: a text blob (SVG / oversized) the inventory-bound
+    EndpointDetector scan would skip is STILL covered by the Scrubber IP pass."""
+    blob = _Blob(b"<svg><desc>connect 52.14.226.9 prod</desc></svg>")
+    ip_scrubber.blob(blob)
+    assert b"52.14.226.9" not in blob.data
+    assert b"[ipv4:" in blob.data
+
+
+def test_sln_guid_survives_scrub(ip_scrubber):
+    """uuid pattern removed → realistic hex GUIDs are no longer mangled (the .sln
+    dotnet-build break); credit_card won't hit hex GUIDs either."""
+    out = ip_scrubber.message(b'Project("{9A19103F-16F7-4668-BE54-5B6A7B8C9D0E}") = "App"')
+    assert b"9A19103F-16F7-4668-BE54-5B6A7B8C9D0E" in out
+
+
+def test_plain_url_survives_scrub(ip_scrubber):
+    out = ip_scrubber.message(b"feed https://api.nuget.org/v3/index.json end")
+    assert b"https://api.nuget.org/v3/index.json" in out
+
+
+def test_ssh_remote_survives_scrub(ip_scrubber):
+    out = ip_scrubber.message(b'"url": "git@github.com:org/repo.git"')
+    assert b"git@github.com:org/repo.git" in out
+
+
+def test_secret_url_param_value_masked(ip_scrubber):
+    out = ip_scrubber.message(b"cb https://h/p?token=opaqueSECRET9876543210 done")
+    assert b"opaqueSECRET9876543210" not in out
+
+
+def test_apply_map_mode_does_not_scrub_ips(pii_defs):
+    """Pass-3 apply-map (scrub_public_ips default False) stays brand-only — the
+    non-brand pass must NOT touch public IPs (Pass-1 already handled them)."""
+    scr = Scrubber(SALT, pii_pattern_defs=[], scrub_public_ips=False)
+    out = scr.message(b"host 52.14.226.9 prod")
+    assert b"52.14.226.9" in out
+
+
+# ── non-allowlisted URL-host scrub (Pass-1) ─────────────────────────────────────
+
+@pytest.fixture(scope="module")
+def url_scrubber(pii_defs) -> Scrubber:
+    return Scrubber(SALT, pii_pattern_defs=pii_defs, scrub_urls=True, keep=set())
+
+
+def test_company_url_host_masked(url_scrubber):
+    out = url_scrubber.message(b"BASE = 'https://api.acmevendor.io/v1/users'")
+    assert b"acmevendor.io" not in out
+    assert b".example.invalid/v1/users" in out  # path kept, structure valid (no [..])
+
+
+@pytest.mark.parametrize("url", [
+    b"https://api.nuget.org/v3/index.json",          # package registry
+    b"http://schemas.android.com/apk/res/android",   # xml schema namespace
+    b"https://github.com/acmecorp/repo",             # code host (path = brand layer)
+    b"https://acme-v02.api.letsencrypt.org/directory",
+    b"http://localhost:8080/health",                 # single-label
+    b"http://web:3000/api",                          # docker service name
+    b"http://192.168.1.10:5432/db",                  # private IP host
+])
+def test_allowlisted_or_nonidentifying_url_kept(url_scrubber, url):
+    out = url_scrubber.message(b"x = '" + url + b"'")
+    assert url in out, f"{url!r} must be kept"
+
+
+def test_public_ip_url_host_masked(url_scrubber):
+    out = url_scrubber.message(b"h = 'http://52.14.226.9:9000/x'")
+    assert b"52.14.226.9" not in out
+    assert b".example.invalid:9000/x" in out
+
+
+def test_url_host_scrub_idempotent(url_scrubber):
+    once = url_scrubber.message(b"u = 'https://api.acmevendor.io/v1'")
+    twice = url_scrubber.message(once)
+    assert once == twice  # masked host ends in example.invalid → allowlisted, not re-masked
+
+
+def test_apply_map_mode_does_not_scrub_urls(pii_defs):
+    """Pass-3 apply-map (scrub_urls default False) leaves URLs alone."""
+    scr = Scrubber(SALT, pii_pattern_defs=[], scrub_urls=False)
+    out = scr.message(b"u = 'https://api.acmevendor.io/v1'")
+    assert b"acmevendor.io" in out
+
+
+# ── URL-host edge cases (codex round-2 must-fixes) ──────────────────────────────
+
+def test_multitenant_cloud_subdomain_masked(url_scrubber):
+    # a customer-controlled GCS vhost bucket must NOT survive via the googleapis suffix
+    out = url_scrubber.message(b"u = 'https://acmecorp.storage.googleapis.com/o'")
+    assert b"acmecorp.storage.googleapis.com" not in out
+    assert b".example.invalid/o" in out
+
+
+def test_distinctive_single_label_host_masked(url_scrubber):
+    out = url_scrubber.message(b"u = 'http://prod-payments-db:5432/x'")
+    assert b"prod-payments-db" not in out  # machine identifier masked
+
+
+def test_url_userinfo_username_dropped(url_scrubber):
+    # a username before @ must not survive even when the host is allowlisted
+    out = url_scrubber.message(b"u = 'https://alice@api.nuget.org/x'")
+    assert b"alice" not in out
+    assert b"api.nuget.org" not in out  # whole authority replaced
+    assert b".example.invalid/x" in out
+
+
+def test_public_ipv6_url_host_masked_no_double_bracket(url_scrubber):
+    out = url_scrubber.message(b"u = 'http://[2606:4700:4700::1111]/api'")
+    assert b"2606:4700" not in out
+    assert b"[[" not in out and b"[ipv6" not in out  # no malformed double-bracket
+    assert b".example.invalid/api" in out
+
+
+def test_doc_ipv6_url_host_kept(url_scrubber):
+    out = url_scrubber.message(b"u = 'http://[2001:db8::1]/api'")
+    assert b"[2001:db8::1]" in out  # documentation range kept
+
+
+def test_non_ascii_idn_url_host_masked(url_scrubber):
+    # the byte-Scrubber backstop must mask a non-ASCII IDN host, not pass it through
+    out = url_scrubber.message("u = 'https://пример.рф/path'".encode("utf-8"))
+    assert "пример.рф".encode("utf-8") not in out
+    assert b".example.invalid/path" in out
+
+
+# ── brand-map collision detection (Pass-2 guardrail) ────────────────────────────
+
+def test_detect_brand_map_collisions():
+    rows = [
+        {"pattern": "extyl", "replacement": "acme1"},
+        {"pattern": "Extyl", "replacement": "acme1"},   # 2 DISTINCT patterns → one placeholder
+        {"pattern": "globus", "replacement": "acme2"},  # distinct replacement, no collision
+    ]
+    assert detect_brand_map_collisions(rows) == {"acme1": ["Extyl", "extyl"]}
+
+
+def test_no_collision_when_replacements_unique():
+    rows = [
+        {"pattern": "a", "replacement": "acme1"},
+        {"pattern": "b", "replacement": "acme2"},
+    ]
+    assert detect_brand_map_collisions(rows) == {}
+
+
+def test_collision_ignores_repeated_identical_rows():
+    rows = [
+        {"pattern": "extyl", "replacement": "acme1"},
+        {"pattern": "extyl", "replacement": "acme1"},  # same pattern twice → not a collision
+    ]
+    assert detect_brand_map_collisions(rows) == {}

@@ -139,6 +139,58 @@ def test_verify_brand_map_shared_blob_path(tmp_path):
     )
 
 
+def _git_commit_files(repo: Path, files: dict) -> None:
+    repo.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "a@b.co"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "x"], cwd=repo, check=True)
+    for rel, content in files.items():
+        p = repo / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content)
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "-c", "commit.gpgsign=false", "commit", "-qm", "init"], cwd=repo, check=True)
+
+
+# a brand row that matches nothing — keeps verify_brand_map_applied past its
+# empty-rows early return so the JSON-manifest check runs, with no brand survivors.
+_NOOP_ROWS = [{"pattern": r"(?i)zzznevermatchesanything", "replacement": "q", "is_regex": True}]
+
+
+@pytest.mark.skipif(not _has_git(), reason="git not installed")
+def test_verify_flags_invalid_json_manifest(tmp_path):
+    """A strict-JSON build manifest that became invalid (the `acme1,` Pass-2
+    failure) is reported as `json-invalid:` so apply-map fails."""
+    import types
+    from repo_sanitizer.steps.history_rewrite import verify_brand_map_applied
+
+    repo = tmp_path / "repo"
+    _git_commit_files(repo, {
+        # trailing comma → invalid JSON
+        "package.json": '{"name": "app", "deps": {"a": "1.0", "b": "2.0",}}\n',
+    })
+    ctx = types.SimpleNamespace(work_dir=repo)
+    survivors = verify_brand_map_applied(ctx, _NOOP_ROWS)
+    assert any(s.startswith("json-invalid:") and "package.json" in s for s in survivors), survivors
+
+
+@pytest.mark.skipif(not _has_git(), reason="git not installed")
+def test_verify_ignores_jsonc_tsconfig(tmp_path):
+    """tsconfig*.json is JSONC (comments / trailing commas are legal) — it must
+    NOT be parsed as strict JSON, and a valid package.json must pass."""
+    import types
+    from repo_sanitizer.steps.history_rewrite import verify_brand_map_applied
+
+    repo = tmp_path / "repo"
+    _git_commit_files(repo, {
+        "tsconfig.json": '{\n  // legal JSONC comment\n  "compilerOptions": {},\n}\n',
+        "package.json": '{"name": "app", "version": "1.0.0"}\n',
+    })
+    ctx = types.SimpleNamespace(work_dir=repo)
+    survivors = verify_brand_map_applied(ctx, _NOOP_ROWS)
+    assert not any(s.startswith("json-invalid:") for s in survivors), survivors
+
+
 @requires_tools
 def test_gitleaks_allow_comment_does_not_suppress(tmp_path):
     """A secret annotated with `# gitleaks:allow` must NOT slip past — every

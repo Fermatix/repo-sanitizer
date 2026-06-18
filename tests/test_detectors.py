@@ -104,6 +104,98 @@ def test_regex_phone_e164(regex_detector):
     assert any("+15551234567" in f.matched_value for f in findings)
 
 
+# ── Pass-1 over-redaction fixes (rulepack pattern tightening) ───────────────────
+
+def _matched(detector, content: str) -> list[str]:
+    t = ScanTarget(file_path="t.txt", content=content)
+    return [f.matched_value for f in detector.detect(t)]
+
+
+def test_regex_email_skips_ssh_git_remote(regex_detector):
+    # `git@host:path` is a git SSH remote, not an email — must not be masked
+    # (else composer/npm git deps break).
+    vals = _matched(regex_detector, 'url = git@github.com:org/repo.git')
+    assert not any("github.com" in v for v in vals), f"SSH remote matched as email: {vals}"
+
+
+def test_regex_email_still_matches_real(regex_detector):
+    vals = _matched(regex_detector, "ping alice@corp.com today")
+    assert "alice@corp.com" in vals
+
+
+def test_regex_email_idempotent_on_mask(regex_detector):
+    # the @example.invalid mask must not be re-matched
+    vals = _matched(regex_detector, "user_abc123def456@example.invalid")
+    assert not any("example.invalid" in v for v in vals)
+
+
+def test_regex_phone_ru_skips_hash_digit_run(regex_detector):
+    # a digit run inside a hex/base64 hash must not look like a phone (go.sum)
+    vals = _matched(regex_detector, "h1:abc84951234567def0011")
+    assert not any(v.lstrip().startswith(("8", "+7")) for v in vals), vals
+
+
+def test_regex_phone_ru_matches_real(regex_detector):
+    vals = _matched(regex_detector, "call +7 (495) 123-45-67 now")
+    assert any("495" in v for v in vals)
+
+
+def test_regex_phone_e164_skips_base64_run(regex_detector):
+    vals = _matched(regex_detector, "token aGVs+15551234567x")
+    assert "+15551234567" not in vals
+
+
+def test_regex_secret_url_param_matches(regex_detector):
+    vals = _matched(regex_detector, "GET https://h/cb?token=opaqueSECRET99 done")
+    assert any("token=opaqueSECRET99" in v for v in vals), vals
+
+
+def test_regex_secret_url_param_skips_plain_url(regex_detector):
+    # a plain build URL with no secret param must NOT be masked
+    vals = _matched(regex_detector, "feed https://api.nuget.org/v3/index.json end")
+    assert not any("nuget.org" in v for v in vals), vals
+
+
+# ── review-driven fixes (codex + Claude subagent must-fixes) ────────────────────
+
+def test_regex_email_trailing_dot_still_masked(regex_detector):
+    # subagent LEAK: a real email at end-of-sentence must still be caught
+    vals = _matched(regex_detector, "Maintainer: real.dev@company.com.")
+    assert "real.dev@company.com" in vals
+
+
+def test_regex_email_port_still_masked(regex_detector):
+    # email:port (no path slash) is a real email, not an SSH remote → masked
+    vals = _matched(regex_detector, "smtp real.dev@company.com:1234 here")
+    assert "real.dev@company.com" in vals
+
+
+def test_regex_email_skips_multilabel_ssh_remote(regex_detector):
+    # multi-label SSH host must not partially match (`git@gitlab.example`)
+    vals = _matched(regex_detector, "url = git@gitlab.example.com:team/repo.git")
+    assert not any("gitlab" in v for v in vals), f"SSH remote matched as email: {vals}"
+
+
+def test_regex_secret_url_param_matches_aws_presigned(regex_detector):
+    # codex must-fix: AWS/GCP presigned-URL credential params
+    vals = _matched(regex_detector, "GET https://b.s3.amazonaws.com/k?X-Amz-Signature=abc123&X-Amz-Date=z")
+    assert any("X-Amz-Signature=abc123" in v for v in vals), vals
+    vals2 = _matched(regex_detector, "GET https://storage.googleapis.com/b/o?X-Goog-Signature=def456")
+    assert any("X-Goog-Signature=def456" in v for v in vals2), vals2
+
+
+def test_regex_jira_ticket_skips_standards_tokens(regex_detector):
+    # codex must-fix: UTF-8 / SHA-256 / ISO-8601 must NOT be masked as tickets
+    for tok in ("UTF-8", "UTF-16", "SHA-256", "ISO-8601", "RFC-2616", "ECMA-262", "BASE-64", "HTTP-2"):
+        vals = _matched(regex_detector, f'encoding "{tok}" here')
+        assert tok not in vals, f"{tok} wrongly masked as jira_ticket: {vals}"
+
+
+def test_regex_jira_ticket_still_matches_real_key(regex_detector):
+    vals = _matched(regex_detector, "fixes PROJ-1234 and ABC-42")
+    assert "PROJ-1234" in vals and "ABC-42" in vals
+
+
 # ── Cyrillic zone gating (byte-vs-char regression) ───────────────────────────
 # These build zones with the REAL tree-sitter extractor (byte offsets
 # internally, character offsets after the fix) and assert that a finding inside
@@ -257,6 +349,80 @@ def test_endpoint_keeps_nonglobal_ipv6(ip):
     content = f"addr = {ip}\n"
     findings = EndpointDetector().detect(ScanTarget(file_path="t.txt", content=content))
     assert not any(f.matched_value == ip for f in findings), f"{ip} (non-global v6) must be kept"
+
+
+def test_endpoint_flags_company_url_host():
+    content = "BASE = 'https://api.acmevendor.io/v1/users'"
+    findings = EndpointDetector().detect(ScanTarget(file_path="t.py", content=content))
+    hosts = [f.matched_value for f in findings]
+    assert "api.acmevendor.io" in hosts, "non-allowlisted URL host must be flagged (the host only)"
+
+
+@pytest.mark.parametrize("url", [
+    "https://api.nuget.org/v3/index.json",
+    "http://schemas.android.com/apk/res/android",
+    "https://github.com/acmecorp/repo",
+    "http://localhost:8080/health",
+    "http://web:3000/api",
+    "http://192.168.1.10/db",
+])
+def test_endpoint_keeps_allowlisted_or_nonidentifying_url(url):
+    findings = EndpointDetector().detect(ScanTarget(file_path="t.py", content=f"x='{url}'"))
+    assert not findings, f"{url} (universal infra / non-identifying) must not be flagged"
+
+
+def test_endpoint_url_host_in_keep_kept():
+    content = "u = 'https://api.acmevendor.io/v1'"
+    findings = EndpointDetector(keep={"acmevendor.io"}).detect(
+        ScanTarget(file_path="t.py", content=content)
+    )
+    assert not findings, "a kept domain used as a URL host must not be flagged"
+
+
+def test_endpoint_flags_multitenant_cloud_subdomain():
+    # customer GCS vhost bucket must be flagged (not kept via googleapis suffix)
+    content = "u = 'https://acmecorp.storage.googleapis.com/o'"
+    findings = EndpointDetector().detect(ScanTarget(file_path="t.py", content=content))
+    assert any("acmecorp.storage.googleapis.com" in f.matched_value for f in findings)
+
+
+def test_endpoint_keeps_deep_vendor_infra_subdomain():
+    # a legitimate multi-label vendor infra host must NOT be flagged
+    content = "u = 'https://acme-v02.api.letsencrypt.org/directory'"
+    findings = EndpointDetector().detect(ScanTarget(file_path="t.py", content=content))
+    assert not findings, "vendor-controlled deep subdomain must be kept"
+
+
+def test_endpoint_flags_url_userinfo():
+    content = "u = 'https://alice@api.nuget.org/x'"
+    findings = EndpointDetector().detect(ScanTarget(file_path="t.py", content=content))
+    assert any("alice@api.nuget.org" in f.matched_value for f in findings), (
+        "userinfo (username) before an allowlisted host must be flagged"
+    )
+
+
+def test_endpoint_flags_distinctive_single_label_url_host():
+    content = "u = 'http://prod-payments-db:5432/x'"
+    findings = EndpointDetector().detect(ScanTarget(file_path="t.py", content=content))
+    assert any("prod-payments-db" in f.matched_value for f in findings)
+
+
+def test_endpoint_flags_userinfo_on_ip_host_no_duplicate():
+    # userinfo on an IP-literal URL host: the username must be flagged (not lost
+    # to the IP-skip), as ONE finding spanning userinfo+host (the bare-IP finding
+    # is dropped by the containment dedup — no overlapping spans).
+    content = "u = 'https://alice@52.14.226.9/x'"
+    findings = EndpointDetector().detect(ScanTarget(file_path="t.py", content=content))
+    assert len(findings) == 1, f"expected one merged finding, got {[f.matched_value for f in findings]}"
+    assert findings[0].matched_value == "alice@52.14.226.9"
+
+
+def test_endpoint_flags_userinfo_on_private_ip_host():
+    content = "u = 'https://alice@192.168.1.10/x'"
+    findings = EndpointDetector().detect(ScanTarget(file_path="t.py", content=content))
+    assert any("alice@192.168.1.10" in f.matched_value for f in findings), (
+        "userinfo must be flagged even when the host is a (kept) private IP"
+    )
 
 
 def test_endpoint_keeps_ip_in_keep_set():

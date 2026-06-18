@@ -180,8 +180,12 @@ def _write_batch_result(artifacts_dir: Path, result: RepoResult) -> None:
 # rename (Pass-2) + apply-map (Pass-3) + the mandatory codex/agent audit run
 # AFTER this staging push and are what the client ultimately receives. Do NOT
 # point `gitlab.delivery_group` at a client-visible location.
+# NO_TAGS / BRANCHES_PRESERVED are structural delivery invariants (a leaked tag
+# or a silently-dropped branch), so they block here too. CLEAN_REF_NAMES is
+# advisory (keeping all branches outranks a residual name token) → NOT blocking.
 _BLOCKING_GATES = frozenset(
-    {"SECRETS", "PII_HIGH", "ENDPOINTS", "FORBIDDEN_FILES", "CONFIGS"}
+    {"SECRETS", "PII_HIGH", "ENDPOINTS", "FORBIDDEN_FILES", "CONFIGS",
+     "NO_TAGS", "BRANCHES_PRESERVED"}
 )
 
 
