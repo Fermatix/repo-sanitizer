@@ -57,6 +57,7 @@ class SecretsDetector(Detector):
                 for item in raw:
                     secret = item.get("Secret", "")
                     start_line = item.get("StartLine", 1)
+                    end_line = item.get("EndLine", start_line)
                     start_col = item.get("StartColumn", 0)
                     end_col = item.get("EndColumn", 0)
 
@@ -64,7 +65,7 @@ class SecretsDetector(Detector):
                         target.content, start_line, start_col
                     )
                     offset_end = _find_offset(
-                        target.content, start_line, end_col
+                        target.content, end_line, end_col
                     )
 
                     if self._in_zones(target, offset_start, offset_end):
@@ -90,12 +91,19 @@ class SecretsDetector(Detector):
 
 
 def _find_offset(content: str, line: int, col: int) -> int:
-    current_line = 1
-    offset = 0
-    for i, ch in enumerate(content):
-        if current_line == line:
-            return offset + max(col - 1, 0)
-        if ch == "\n":
-            current_line += 1
-            offset = i + 1
-    return offset + max(col - 1, 0)
+    """Map a gitleaks (1-based line, 1-based column) to a character offset.
+
+    gitleaks reports columns as BYTE offsets within the line; treating them as
+    character offsets misplaces the span on lines containing multibyte (e.g.
+    Cyrillic) characters. Decode the line's bytes up to the column to recover
+    the character column. For ASCII this is identical to the previous behavior.
+    """
+    lines = content.split("\n")
+    idx = min(max(line - 1, 0), len(lines) - 1) if lines else 0
+    line_start = sum(len(prev) + 1 for prev in lines[:idx])  # +1 for each '\n'
+    line_text = lines[idx] if idx < len(lines) else ""
+    byte_col = max(col - 1, 0)
+    char_col = len(
+        line_text.encode("utf-8")[:byte_col].decode("utf-8", errors="replace")
+    )
+    return line_start + char_col

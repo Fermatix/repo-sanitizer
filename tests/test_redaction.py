@@ -134,6 +134,28 @@ def test_applier_manifest_fields():
     assert "ner_label" not in entry
 
 
+# ── Applier: Cyrillic (multibyte) ────────────────────────────────────────────
+
+def test_applier_preserves_cyrillic_surrounding():
+    content = "Контакт: alice@example.com спасибо"
+    finding = _make_finding(content, "alice@example.com")
+    result, _ = apply_redactions(content, [finding], SALT)
+    assert "alice@example.com" not in result
+    assert result.startswith("Контакт: ")
+    assert result.endswith(" спасибо")
+    assert "�" not in result  # no mojibake
+
+
+def test_applier_redacts_cyrillic_value():
+    content = "before Москерам after"
+    finding = _make_finding(content, "Москерам", category=Category.DICTIONARY)
+    result, manifest = apply_redactions(content, [finding], SALT)
+    assert "Москерам" not in result
+    assert result.startswith("before ")
+    assert result.endswith(" after")
+    assert manifest[0]["original_value"] == "Москерам"
+
+
 # ── Git identity ───────────────────────────────────────────────────────────────
 
 def test_git_identity_name_deterministic():

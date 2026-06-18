@@ -156,3 +156,49 @@ def test_fallback_no_code_in_zones():
     zones = fb.extract_zones(code)
     texts = [code[z.start:z.end] for z in zones]
     assert not any("secret_var" in t for t in texts)
+
+
+# ── Cyrillic / multibyte zone offsets (byte-vs-char regression) ───────────────
+# Zones are returned as CHARACTER offsets; on multibyte UTF-8 a byte-offset zone
+# would slice mid-character or overshoot, so the str round-trip would not match.
+
+def test_cyrillic_comment_zone_offsets(ts_extractor):
+    code = '# Привет мир секрет\nx = 1\n'
+    zones = ts_extractor.extract_zones("test.py", code)
+    assert zones is not None
+    texts = [code[z.start:z.end] for z in zones]
+    # Exact round-trip: with byte offsets this would spill past the comment into
+    # the following code line.
+    assert any(t.strip() == "# Привет мир секрет" for t in texts)
+
+
+def test_cyrillic_string_zone_offsets(ts_extractor):
+    code = 'value = "Москерам корпорация"\n'
+    zones = ts_extractor.extract_zones("test.py", code)
+    assert zones is not None
+    texts = [code[z.start:z.end] for z in zones]
+    target = next(t for t in texts if "Москерам" in t)
+    assert "Москерам корпорация" in target
+    assert "\n" not in target  # no byte-offset spillover into the next line
+
+
+def test_cyrillic_before_ascii_token_alignment(ts_extractor):
+    # ASCII token inside a string that begins with Cyrillic: the zone must align
+    # so the ASCII token round-trips exactly (proves char, not byte, offsets).
+    code = 'x = "Привет admin@corp.com"\n'
+    zones = ts_extractor.extract_zones("test.py", code)
+    assert zones is not None
+    slices = [code[z.start:z.end] for z in zones]
+    target = next(s for s in slices if "admin@corp.com" in s)
+    assert "Привет admin@corp.com" in target
+    assert "\n" not in target
+
+
+def test_ascii_offsets_unchanged_fast_path(ts_extractor):
+    # Pure ASCII must behave exactly as before (byte == char fast-path).
+    code = 'x = "hello world"  # note\n'
+    zones = ts_extractor.extract_zones("test.py", code)
+    assert zones is not None
+    slices = [code[z.start:z.end] for z in zones]
+    assert any("hello world" in s for s in slices)
+    assert any("note" in s for s in slices)

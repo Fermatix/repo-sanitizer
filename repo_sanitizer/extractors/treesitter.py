@@ -862,7 +862,14 @@ class TreeSitterExtractor:
 
         zones = self._filter_min_length(zones)
         zones = self._merge_zones(zones)
-        return zones
+        # tree-sitter reports BYTE offsets, but every downstream consumer
+        # (each detector's _in_zones, the NER zone slice, the redact-time
+        # re-filter in steps/redact.py, and redaction/applier.py) indexes the
+        # Python str by CHARACTER. On multibyte UTF-8 (e.g. Cyrillic) byte and
+        # char offsets diverge, which silently drops or misslices in-zone
+        # findings. Normalize to character offsets once here so all consumers
+        # agree. (The regex FallbackExtractor already emits char offsets.)
+        return self._byte_zones_to_char(content, zones)
 
     def _walk_tree(
         self,
@@ -914,3 +921,49 @@ class TreeSitterExtractor:
             else:
                 merged.append(z)
         return merged
+
+    @staticmethod
+    def _byte_zones_to_char(content: str, zones: list[Zone]) -> list[Zone]:
+        """Convert byte-offset zones (from tree-sitter) to character offsets.
+
+        ASCII content has byte == char, so it is returned unchanged (the common
+        case, at zero cost). Otherwise a single pass maps each zone boundary's
+        UTF-8 byte offset to its character index. The per-code-point UTF-8 byte
+        length is derived from ord() rather than encoding each char, to stay
+        cheap on large files. A byte offset that lands mid-character (should not
+        happen for tree-sitter node boundaries in valid UTF-8) maps to the
+        nearest following character start; an offset at/after EOF maps to
+        len(content). The mapping is monotonic, so zone order and
+        non-overlap (already established by _merge_zones) are preserved.
+        """
+        if not zones or content.isascii():
+            return zones
+
+        targets = sorted({z.start for z in zones} | {z.end for z in zones})
+        byte_to_char: dict[int, int] = {}
+        n = len(targets)
+        ti = 0
+        byte_pos = 0
+        for char_idx, ch in enumerate(content):
+            while ti < n and targets[ti] <= byte_pos:
+                byte_to_char[targets[ti]] = char_idx
+                ti += 1
+            if ti >= n:
+                break
+            cp = ord(ch)
+            if cp < 0x80:
+                byte_pos += 1
+            elif cp < 0x800:
+                byte_pos += 2
+            elif cp < 0x10000:
+                byte_pos += 3
+            else:
+                byte_pos += 4
+        while ti < n:  # boundaries at/after EOF
+            byte_to_char[targets[ti]] = len(content)
+            ti += 1
+
+        return [
+            Zone(start=byte_to_char[z.start], end=byte_to_char[z.end])
+            for z in zones
+        ]

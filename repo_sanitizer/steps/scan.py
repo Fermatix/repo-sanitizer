@@ -7,6 +7,7 @@ from pathlib import Path
 
 from repo_sanitizer.context import FileAction, FileCategory, RunContext
 from repo_sanitizer.detectors.base import Detector, Finding, ScanTarget, Zone
+from repo_sanitizer.encoding import read_text_detect
 from repo_sanitizer.extractors.fallback import FallbackExtractor
 from repo_sanitizer.extractors.treesitter import TreeSitterExtractor, check_grammar_packages
 from repo_sanitizer.rulepack import Rulepack
@@ -81,7 +82,7 @@ def run_scan(
             continue
 
         try:
-            content = file_path.read_text(encoding="utf-8", errors="replace")
+            content, _enc = read_text_detect(file_path)
         except Exception as e:
             logger.warning("Cannot read %s: %s", item.path, e)
             continue
