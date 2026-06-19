@@ -58,6 +58,11 @@ class RunContext:
     history_blob_pre_findings: list[Finding] = field(default_factory=list)
     history_blob_post_findings: list[Finding] = field(default_factory=list)
     redaction_manifest: list[dict] = field(default_factory=list)
+    # Parse-validity (path → bool) of every structured config in the ORIGINAL tree,
+    # snapshotted before redaction. The PARSEABLE_CONFIGS build-smoke gate re-checks
+    # the rewritten tree and fails on any valid→invalid regression (a redaction that
+    # broke a JSON/YAML/XML/csproj/TOML file).
+    config_parse_pre: dict = field(default_factory=dict)
     timings: dict = field(default_factory=dict)
     # Branch topology captured at intake (steps/fetch.py) and the final ref set
     # produced by the ref-reconcile step (steps/ref_reconcile.py). intake_branch_tips

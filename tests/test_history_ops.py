@@ -61,7 +61,10 @@ def test_message_pii_pattern_masked(pii_defs):
     scr = Scrubber(SALT, pii_pattern_defs=pii_defs)
     out = scr.message(b"key AKIAIOSFODNN7EXAMPLE leaked")
     assert b"AKIAIOSFODNN7EXAMPLE" not in out
-    assert b"[aws_access_key_id:" in out
+    # Build-safe: an identifier-safe REDACTED_<NAME>_<hash> token, never a
+    # "[name:hash]" bracket marker (which breaks YAML/compose/nginx/JSON).
+    assert b"[aws_access_key_id:" not in out
+    assert b"REDACTED_AWS_ACCESS_KEY_ID_" in out
 
 
 def test_secret_literal_scrubbed_in_message_and_blob(pii_defs):
@@ -251,13 +254,17 @@ def ip_scrubber(pii_defs) -> Scrubber:
 def test_public_ipv4_scrubbed(ip_scrubber):
     out = ip_scrubber.message(b"host 52.14.226.9 prod")
     assert b"52.14.226.9" not in out
-    assert b"[ipv4:" in out
+    # Build-safe: a VALID documentation-range IPv4 literal, not a "[ipv4:hash]"
+    # marker (which broke docker-compose / k8s / nginx / YAML).
+    assert b"[ipv4:" not in out
+    assert b"203.0.113." in out
 
 
 def test_public_ipv6_scrubbed(ip_scrubber):
     out = ip_scrubber.message(b"endpoint 2606:4700:4700::1111 here")
     assert b"2606:4700:4700::1111" not in out
-    assert b"[ipv6:" in out
+    assert b"[ipv6:" not in out
+    assert b"2001:db8::" in out
 
 
 @pytest.mark.parametrize(
@@ -285,7 +292,8 @@ def test_public_ip_scrubbed_in_svg_like_blob(ip_scrubber):
     blob = _Blob(b"<svg><desc>connect 52.14.226.9 prod</desc></svg>")
     ip_scrubber.blob(blob)
     assert b"52.14.226.9" not in blob.data
-    assert b"[ipv4:" in blob.data
+    assert b"[ipv4:" not in blob.data
+    assert b"203.0.113." in blob.data
 
 
 def test_sln_guid_survives_scrub(ip_scrubber):

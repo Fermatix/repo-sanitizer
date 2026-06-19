@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -136,6 +138,15 @@ def _collect_secret_literals(ctx: RunContext) -> list[str]:
         det = getattr(f, "detector", "")
         val = getattr(f, "matched_value", "")
         if val and det in ("SecretsDetector", "EndpointDetector"):
+            # A public-IP endpoint is masked to a VALID documentation-range IP by
+            # the scrubber's public-IP pass; collecting it as an exact literal would
+            # instead stamp REDACTED_<hash> over it (a non-IP that breaks a
+            # compose/k8s/nginx field). Leave IP literals to the doc-range pass.
+            try:
+                ipaddress.ip_address(val.strip("[]"))
+                continue
+            except ValueError:
+                pass
             secrets.add(val)
 
     work = str(ctx.work_dir)
@@ -162,7 +173,41 @@ def _collect_secret_literals(ctx: RunContext) -> list[str]:
     except Exception as e:  # noqa: BLE001 — collection is best-effort (gate backstops)
         logger.warning("full-history gitleaks pass failed (continuing): %s", e)
 
-    return sorted(s for s in secrets if len(s) >= 5)
+    # Drop values that are DECLARED code identifiers (a class/interface/func name a
+    # gitleaks generic-secret rule false-flagged). Exact-replacing such a value as a
+    # tree-wide literal clobbers its declaration + every reference → uncompilable
+    # (e.g. `public interface ConsumerApiV1` → `public interface REDACTED_<hash>`).
+    # Safe: a value we wrongly skip that really IS a secret is re-caught by the
+    # fail-closed post-rewrite gitleaks gate (run_history_secret_gate), so this can
+    # never cause a silent leak — at worst it surfaces on the SECRETS worklist.
+    ident = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{4,}$")
+    out: list[str] = []
+    for s in sorted(secrets):
+        if len(s) < 5:
+            continue
+        if ident.match(s) and _is_declared_identifier(work, s):
+            logger.debug("skip secret-literal %r: declared code identifier, not a secret", s)
+            continue
+        out.append(s)
+    return out
+
+
+def _is_declared_identifier(work: str, value: str) -> bool:
+    """True if ``value`` appears as a DECLARED code symbol (class/interface/func/
+    type/namespace name) in the working tree — i.e. it is code, not a credential.
+    Only called for identifier-shaped values, so the cost is a handful of greps."""
+    pat = (
+        r"(class|interface|enum|struct|trait|protocol|namespace|object|type|"
+        r"func|fun|def|void|record|module)[ \t]+" + value + r"([^A-Za-z0-9_]|$)"
+    )
+    try:
+        r = subprocess.run(
+            ["git", "grep", "-I", "-l", "-E", "-e", pat, "--", "."],
+            cwd=work, capture_output=True, text=True, timeout=60,
+        )
+    except Exception:  # noqa: BLE001 — best-effort; treat a grep failure as "not declared"
+        return False
+    return bool(r.stdout.strip())
 
 
 def _collect_person_literals(ctx: RunContext) -> list[str]:

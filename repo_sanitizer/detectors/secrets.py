@@ -24,7 +24,11 @@ from repo_sanitizer.encoding import read_text_detect
 # ANCHORED with \b and pinned to the exact hash length so a REAL secret that
 # merely contains such a substring is NOT suppressed (regexTarget="match").
 _MASK_ALLOWLIST_REGEXES = (
-    r"\bREDACTED_(?:EMAIL_|IP_|JWT_|URL_)?[0-9a-fA-F]{12}\b",
+    # REDACTED_<hash> and REDACTED_<RULE_NAME>_<hash> — the latter is the
+    # identifier-safe token the history scrubber emits for every non-URL PII/secret
+    # pattern (e.g. REDACTED_GITHUB_TOKEN_<hash>, REDACTED_IBAN_<hash>), replacing
+    # the old build-breaking "[name:hash]" markers.
+    r"\bREDACTED_(?:[A-Z0-9_]+_)?[0-9a-fA-F]{12}\b",
     r"\bTERM_[0-9a-fA-F]{12}\b",
     r"\bANON_(?:PER|ORG)_[0-9a-fA-F]{12}\b",
     r"\bAuthor_[0-9a-fA-F]{12}\b",

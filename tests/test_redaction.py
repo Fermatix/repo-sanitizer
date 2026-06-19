@@ -77,9 +77,16 @@ def test_mask_org_format():
 
 
 def test_mask_ip_format():
+    import ipaddress
+    # Build-safe: a public IP masks to a VALID documentation-range IPv4 literal
+    # (203.0.113.0/24), so a config that requires an IP still parses.
     r = mask_ip(SALT, "10.0.0.1")
-    assert r.startswith("REDACTED_IP_")
-    assert not r[0].isdigit()
+    assert r.startswith("203.0.113.")
+    assert ipaddress.ip_address(r) in ipaddress.ip_network("203.0.113.0/24")
+    # IPv6 masks to the RFC3849 documentation prefix.
+    r6 = mask_ip(SALT, "2606:4700:4700::1111")
+    assert r6.startswith("2001:db8::")
+    assert ipaddress.ip_address(r6) in ipaddress.ip_network("2001:db8::/32")
 
 
 # ── Applier: single span ───────────────────────────────────────────────────────

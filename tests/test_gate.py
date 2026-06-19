@@ -66,6 +66,34 @@ def test_brand_findings_fail_their_gate(gate_ctx, category, gate):
     assert result["gates"]["SECRETS"]["passed"] is True
 
 
+def test_parseable_configs_gate_flags_redaction_break(gate_ctx):
+    """A structured config that PARSED before redaction and does not parse after is
+    a build break → the (blocking) PARSEABLE_CONFIGS gate fails. Only valid→invalid
+    regressions count, so an untouched/already-broken file never false-fails."""
+    work = gate_ctx.work_dir
+    work.mkdir(parents=True)
+    (work / "compose.yml").write_text("services:\n  web:\n    ports:\n      - 8080:80\n")
+    (work / "untouched.json").write_text('{"ok": true}')
+    gate_ctx.config_parse_pre = {"compose.yml": True, "untouched.json": True}
+    # redaction broke the YAML (a bracket marker spliced into an unquoted scalar)
+    (work / "compose.yml").write_text("services:\n  web:\n    ports:\n      - [x:y]:80\n")
+    result = run_gate_check(gate_ctx)
+    gate = result["gates"]["PARSEABLE_CONFIGS"]
+    assert gate["passed"] is False
+    assert gate["failing_count"] == 1
+    assert gate["files"] == ["compose.yml"]
+    assert result["exit_code"] == 1
+
+
+def test_parseable_configs_gate_passes_when_clean(gate_ctx):
+    work = gate_ctx.work_dir
+    work.mkdir(parents=True)
+    (work / "a.yaml").write_text("a: 1\n")
+    gate_ctx.config_parse_pre = {"a.yaml": True}
+    result = run_gate_check(gate_ctx)
+    assert result["gates"]["PARSEABLE_CONFIGS"]["passed"] is True
+
+
 def test_brand_gate_enumerates_worklist(gate_ctx):
     gate_ctx.post_findings = [
         _finding(Category.BRAND_IDENTIFIER),

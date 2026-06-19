@@ -91,6 +91,21 @@ def run_gate_check(ctx: RunContext) -> dict:
         "files": config_violations,
     }
 
+    # PARSEABLE_CONFIGS gate (blocking) — build-smoke. Redaction must not turn a
+    # structured config that PARSED before into one that does not parse after (the
+    # dominant ship-blocking defect: a placeholder spliced into YAML/JSON/XML/csproj/
+    # TOML syntax). Only valid→invalid regressions count (a pre-broken or deleted
+    # file is not flagged), so a clean repo never false-fails.
+    t0 = time.perf_counter()
+    config_breaks = _check_parseable_configs(ctx)
+    gate_timings["PARSEABLE_CONFIGS"] = round(time.perf_counter() - t0, 4)
+    results["PARSEABLE_CONFIGS"] = {
+        "passed": len(config_breaks) == 0,
+        "description": "No structured config (JSON/YAML/XML/csproj/TOML) broken by redaction",
+        "failing_count": len(config_breaks),
+        "files": config_breaks[:50],
+    }
+
     # NO_TAGS gate (blocking) — ref-reconcile must have dropped every tag.
     t0 = time.perf_counter()
     leftover_tags = _list_refs(ctx, "refs/tags")
@@ -229,6 +244,20 @@ def _check_ref_names(ctx: RunContext) -> list[str]:
             except Exception:  # noqa: BLE001
                 continue
     return dirty
+
+
+def _check_parseable_configs(ctx: RunContext) -> list[str]:
+    """Structured config files that PARSED before redaction and do NOT parse now.
+
+    Re-parses the rewritten working tree and diffs against ``ctx.config_parse_pre``
+    (snapshotted on the original tree). Empty pre-snapshot (e.g. apply-map, which
+    builds its own check) ⇒ no regressions reported here."""
+    pre = getattr(ctx, "config_parse_pre", None) or {}
+    if not pre:
+        return []
+    from repo_sanitizer.buildsafe import config_parse_regressions, parse_status
+    post = parse_status(ctx.work_dir)
+    return config_parse_regressions(pre, post)
 
 
 def _check_forbidden_files(ctx: RunContext) -> list[str]:

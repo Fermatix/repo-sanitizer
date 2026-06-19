@@ -144,6 +144,11 @@ def run_sanitize(
     skip_n = len(ctx.inventory) - scan_n - del_n
     logger.info("Inventory: %d files — %d to scan, %d to delete, %d skipped", len(ctx.inventory), scan_n, del_n, skip_n)
 
+    # Snapshot structured-config parse-validity on the ORIGINAL tree (before any
+    # redaction) so the PARSEABLE_CONFIGS gate can flag valid→invalid regressions.
+    from repo_sanitizer.buildsafe import parse_status
+    ctx.config_parse_pre = parse_status(ctx.work_dir)
+
     # Step 3: Pre-scan (working tree at --rev)
     detectors = build_detectors(
         rulepack, ner_service_url=ctx.ner_service_url, ner_scope=ctx.ner_scope

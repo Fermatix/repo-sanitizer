@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hmac
 
+from repo_sanitizer.buildsafe import doc_ipv4, doc_ipv6
+
 
 def _hash(salt: bytes, value: str, length: int = 12) -> str:
     return hmac.new(salt, value.encode(), "sha256").hexdigest()[:length]
@@ -28,7 +30,11 @@ def mask_domain(salt: bytes, value: str) -> str:
 
 
 def mask_ip(salt: bytes, value: str) -> str:
-    return f"REDACTED_IP_{_hash(salt, value)}"
+    # A VALID documentation-range IP literal, so masking a public IP never breaks a
+    # config that requires an IP (compose port-spec, k8s, nginx). Matches the
+    # history scrubber's _scrub_public_ip_bytes pass.
+    raw = value.encode()
+    return (doc_ipv6 if ":" in value else doc_ipv4)(salt, raw).decode()
 
 
 def mask_secret(salt: bytes, value: str) -> str:
