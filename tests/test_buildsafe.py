@@ -15,7 +15,11 @@ from repo_sanitizer.buildsafe import (
     contains_mask,
     doc_ipv4,
     doc_ipv6,
+    is_bare_domain,
+    is_dotted_version,
     is_template,
+    looks_low_value_identifier,
+    luhn_ok,
     parse_status,
 )
 from repo_sanitizer.redaction.history_ops import Scrubber
@@ -145,6 +149,78 @@ def test_secret_url_param_masks_value_only_and_skips_templates(pii_defs):
 def test_generic_host_in_connection_string_is_kept(pii_defs):
     scr = Scrubber(SALT, pii_pattern_defs=pii_defs)
     assert b"redis://localhost:6379/0" in scr.message(b"redis://localhost:6379/0")
+
+
+# ── literal-replace safety (secret/person exact-replace must not clobber code) ──
+
+
+def test_literal_safety_predicates():
+    assert is_dotted_version("4.0.0.0") and is_dotted_version("1.2.3")
+    assert not is_dotted_version("4.0.0.0a") and not is_dotted_version("hello")
+    assert is_bare_domain("cloud.google.com") and is_bare_domain("getcomposer.org")
+    assert not is_bare_domain("Queue") and not is_bare_domain("1.2.3.4")
+    # low-value (drop from SECRET literals): short / low-entropy / dict words
+    for w in ("com", "acme3", "Queue", "Dashboard", "lodash", "blockchain"):
+        assert looks_low_value_identifier(w), w
+    # a high-entropy secret-shaped identifier is kept
+    assert not looks_low_value_identifier("aB3xK9mP2qLw")
+
+
+def test_luhn_distinguishes_card_from_numeric_data():
+    assert luhn_ok("4111111111111111")          # Visa test card
+    assert not luhn_ok("4111111111111112")       # one digit off
+    assert not luhn_ok("1234567890123456")       # a fileID / coord run
+
+
+def test_secret_literal_is_word_boundaried(pii_defs):
+    """A standalone identifier literal is masked, but a SUBSTRING of a larger
+    identifier is NOT clobbered (Queue must not break QueueDeclare)."""
+    scr = Scrubber(SALT, pii_pattern_defs=pii_defs, secret_literals=["Queue"])
+    out = scr.message(b"ch.QueueDeclare(); q := Queue{}; QueueBind()")
+    assert b"QueueDeclare" in out and b"QueueBind" in out  # substrings intact
+    assert b"Queue{}" not in out                            # standalone masked
+    assert b"REDACTED_" in out
+
+
+def test_person_literal_is_word_boundaried(pii_defs):
+    scr = Scrubber(SALT, pii_pattern_defs=pii_defs, person_literals=["Dashboard"])
+    out = scr.message(b"class DashboardController {} var x = Dashboard;")
+    assert b"DashboardController" in out      # substring intact
+    assert b"= Dashboard;" not in out         # standalone masked
+    assert b"ANON_PER_" in out
+
+
+def test_credit_card_masked_only_when_luhn_valid(pii_defs):
+    scr = Scrubber(SALT, pii_pattern_defs=pii_defs)
+    out = scr.message(b"valid 4111111111111111 invalid 4111111111111112")
+    assert b"4111111111111111" not in out     # real card masked
+    assert b"4111111111111112" in out         # luhn-invalid numeric run kept
+
+
+def test_filter_literals_drops_build_load_bearing():
+    from repo_sanitizer.steps.history_rewrite import _filter_literals
+    vals = ["4.0.0.0", "cloud.google.com", "Dashboard", "lodash", "aB3xK9mP2qLw"]
+    kept = _filter_literals("/nonexistent-path-xyz", vals, secret=True)
+    assert "4.0.0.0" not in kept and "cloud.google.com" not in kept
+    assert "Dashboard" not in kept and "lodash" not in kept
+    assert "aB3xK9mP2qLw" in kept              # a real high-entropy secret survives
+
+
+def test_filter_literals_person_keeps_short_surnames():
+    from repo_sanitizer.steps.history_rewrite import _filter_literals
+    kept = _filter_literals("/nonexistent-path-xyz", ["Smith", "Lee", "4.0.0.0"], secret=False)
+    assert "Smith" in kept and "Lee" in kept   # real short surnames not dropped
+    assert "4.0.0.0" not in kept               # version still dropped
+
+
+def test_dotted_version_not_masked_as_ip(pii_defs):
+    """A 4-part assembly/package version is a valid public IPv4; the version-context
+    guard keeps it while a real IP elsewhere is still masked to a doc-range."""
+    scr = Scrubber(SALT, pii_pattern_defs=pii_defs, scrub_public_ips=True)
+    out = scr.message(b'[assembly: AssemblyVersion("4.0.0.0")] bind 4.0.0.1 here')
+    assert b'AssemblyVersion("4.0.0.0")' in out   # version literal preserved
+    assert b"4.0.0.1" not in out                  # real IP masked
+    assert b"203.0.113." in out
 
 
 def test_no_bracket_markers_emitted(pii_defs):

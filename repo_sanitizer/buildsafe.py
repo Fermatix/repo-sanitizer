@@ -22,9 +22,11 @@ from __future__ import annotations
 
 import hmac
 import json
+import math
 import os
 import re
 import xml.etree.ElementTree as ET
+from collections import Counter
 from pathlib import Path
 
 try:  # PyYAML is a runtime dep; guard so a stripped env degrades to "can't check"
@@ -102,6 +104,99 @@ def contains_mask(value: str) -> bool:
     pattern shape, so without this guard the same pattern re-fires on the masked
     value and the gate never reaches zero."""
     return ".example.invalid" in value or bool(_MASK_TOKEN_RE.search(value))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Literal-replace safety (so a secret/person EXACT-replace never clobbers code)
+# ──────────────────────────────────────────────────────────────────────────────
+# A gitleaks/NER hit is exact-byte-replaced tree-wide. Without a guard this stamps
+# REDACTED_<hash> / ANON_PER_<hash> over things that are NOT credentials/people but
+# are load-bearing for the build: a dotted assembly version (4.0.0.0), a public
+# domain / package / module name (lodash, google.com), a file/dir basename used in
+# import paths, or a low-entropy plain identifier / dictionary word (Dashboard,
+# Queue, blockchain). Dropping such a literal is SAFE: a value we wrongly skip that
+# really is a secret is re-caught by the fail-closed post-rewrite gitleaks gate, so
+# this can never cause a SILENT leak — at worst it surfaces on the Pass-2 worklist.
+
+_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_DOTTED_VERSION_RE = re.compile(r"\d+(\.\d+){1,3}")
+_BARE_DOMAIN_RE = re.compile(
+    r"(?=.{4,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+"
+)
+
+
+def shannon_entropy(s: str) -> float:
+    if not s:
+        return 0.0
+    n = len(s)
+    return -sum((c / n) * math.log2(c / n) for c in Counter(s).values())
+
+
+def is_identifier(value: str) -> bool:
+    """A bare code identifier — masking it inside a LARGER identifier (substring)
+    would corrupt code, so its literal replace must be word-boundaried."""
+    return bool(_IDENT_RE.fullmatch(value))
+
+
+def is_dotted_version(value: str) -> bool:
+    return bool(_DOTTED_VERSION_RE.fullmatch(value))
+
+
+# A 4-part dotted version (4.0.0.0, 1.2.3.4) is a VALID public IPv4 — masking it as
+# an IP rewrites an assembly/package version and breaks .NET/Unity reference
+# resolution. Skip a dotted quad whose CURRENT FIELD is a version context.
+_VERSION_CTX_RE = re.compile(
+    r"(?i)(version|assembly|<reference|packagereference|packageref|targetframework"
+    r"|runtimeversion|frameworkversion|\bver\b|v\s*=|mscorlib|netstandard|netcoreapp)"
+)
+# Delimiters that END a value/field — the version keyword must be in the SAME field
+# as the quad (so a `Version="x")] ... bind <IP>` does not falsely protect the IP).
+_FIELD_CLOSE_RE = re.compile(r"[)\]};>,\n]")
+
+
+def in_version_context(text: str, start: int, window: int = 48) -> bool:
+    """True if the dotted quad at ``start`` sits in a version FIELD (so it is a
+    version literal, not a deployment IP). Looks back ``window`` chars but only
+    within the current field — the lookback is cut at the last field-closing
+    delimiter, so a version keyword from a PREVIOUS field can't protect a later IP."""
+    pre = text[max(0, start - window):start]
+    cut = max((m.end() for m in _FIELD_CLOSE_RE.finditer(pre)), default=0)
+    return bool(_VERSION_CTX_RE.search(pre[cut:]))
+
+
+def is_bare_domain(value: str) -> bool:
+    """A hostname / package-with-dots (foo.com, cloud.google.com) — not a secret."""
+    return ("." in value and not value.replace(".", "").isdigit()
+            and bool(_BARE_DOMAIN_RE.fullmatch(value)))
+
+
+def looks_low_value_identifier(value: str) -> bool:
+    """A plain identifier / dictionary word that is almost never a real secret —
+    short, or low-entropy (lodash, Dashboard, blockchain, acme3, Queue, com).
+    Applied to SECRET literals only (a short real surname must not be dropped from
+    PERSON literals)."""
+    if not is_identifier(value):
+        return False
+    return len(value) < 6 or shannon_entropy(value) < 3.2
+
+
+def luhn_ok(value: str) -> bool:
+    """Luhn checksum over the digits of ``value`` — distinguishes a real card number
+    from a 16-digit float/fileID/model-weight run in numeric data (Unity prefabs,
+    CatBoost models, FBX/SVG coords) that the credit_card regex otherwise mangles."""
+    ds = [int(c) for c in value if c.isdigit()]
+    if len(ds) < 12:
+        return False
+    total, alt = 0, False
+    for d in reversed(ds):
+        if alt:
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
+        alt = not alt
+    return total % 10 == 0
 
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -4,7 +4,6 @@ import ipaddress
 import json
 import logging
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -173,22 +172,59 @@ def _collect_secret_literals(ctx: RunContext) -> list[str]:
     except Exception as e:  # noqa: BLE001 — collection is best-effort (gate backstops)
         logger.warning("full-history gitleaks pass failed (continuing): %s", e)
 
-    # Drop values that are DECLARED code identifiers (a class/interface/func name a
-    # gitleaks generic-secret rule false-flagged). Exact-replacing such a value as a
-    # tree-wide literal clobbers its declaration + every reference → uncompilable
-    # (e.g. `public interface ConsumerApiV1` → `public interface REDACTED_<hash>`).
-    # Safe: a value we wrongly skip that really IS a secret is re-caught by the
-    # fail-closed post-rewrite gitleaks gate (run_history_secret_gate), so this can
-    # never cause a silent leak — at worst it surfaces on the SECRETS worklist.
-    ident = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{4,}$")
+    return _filter_literals(work, [s for s in secrets if len(s) >= 5], secret=True)
+
+
+def _path_basenames(work: str) -> set[str]:
+    """Every file/dir basename (with and without extension) tracked in the work
+    tree — exact-replacing such a token in CONTENT desyncs it from the unrenamed
+    on-disk name (broken import path / docker build-context / COPY / WORKDIR)."""
+    try:
+        r = subprocess.run(
+            ["git", "ls-files"], cwd=work, capture_output=True, text=True, timeout=60
+        )
+    except Exception:  # noqa: BLE001
+        return set()
+    names: set[str] = set()
+    for line in r.stdout.splitlines():
+        for part in line.replace("\\", "/").split("/"):
+            if part:
+                names.add(part)
+                stem = part.rsplit(".", 1)[0]
+                if stem:
+                    names.add(stem)
+    return names
+
+
+def _filter_literals(work: str, values, *, secret: bool) -> list[str]:
+    """Drop build-load-bearing / non-credential literals from the exact-replace set
+    so they don't clobber code. Dropped for BOTH secret + person literals: dotted
+    versions (4.0.0.0), public domains / package-with-dots (lodash is handled by the
+    dict-word rule; cloud.google.com here), work-tree path basenames, and declared
+    code identifiers. SECRET literals additionally drop low-entropy plain
+    identifiers / dictionary words (Dashboard, blockchain, acme3) — a real surname
+    of that shape must NOT be dropped from PERSON literals, so that rule is
+    secret-only. Safe: a real secret/name dropped here is re-caught by the
+    fail-closed post-rewrite gitleaks gate / re-flagged by NER → a Pass-2 worklist
+    item, never a silent leak. (The word-boundaried matcher in history_ops then
+    stops any KEPT identifier literal from clobbering a larger identifier.)"""
+    from repo_sanitizer.buildsafe import (
+        is_bare_domain,
+        is_dotted_version,
+        is_identifier,
+        looks_low_value_identifier,
+    )
+    basenames = _path_basenames(work)
     out: list[str] = []
-    for s in sorted(secrets):
-        if len(s) < 5:
+    for v in sorted(set(values), key=len, reverse=True):
+        if is_dotted_version(v) or is_bare_domain(v) or v in basenames:
             continue
-        if ident.match(s) and _is_declared_identifier(work, s):
-            logger.debug("skip secret-literal %r: declared code identifier, not a secret", s)
-            continue
-        out.append(s)
+        if is_identifier(v):
+            if _is_declared_identifier(work, v):
+                continue
+            if secret and looks_low_value_identifier(v):
+                continue
+        out.append(v)
     return out
 
 
@@ -231,7 +267,11 @@ def _collect_person_literals(ctx: RunContext) -> list[str]:
             val = (getattr(f, "matched_value", "") or "").strip()
             if len(val) >= 3:
                 names.add(val)
-    return sorted(names, key=len, reverse=True)
+    # Same build-load-bearing guard as secrets (versions / domains / path basenames /
+    # declared identifiers) — a NER false-positive on `Queue`/`Dashboard` must not
+    # clobber code; the low-entropy dict-word rule is secret-only so real short
+    # surnames survive.
+    return _filter_literals(str(ctx.work_dir), names, secret=False)
 
 
 def run_history_secret_gate(ctx: RunContext) -> list:

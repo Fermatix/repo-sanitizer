@@ -34,7 +34,14 @@ from typing import Callable, Optional, Union
 # Single source of truth for "which IP is worth redacting". endpoint imports only
 # stdlib + the lightweight detectors.base, so this is safe to import inside the
 # git-filter-repo subprocess (where Scrubber is instantiated).
-from repo_sanitizer.buildsafe import doc_ipv4, doc_ipv6, is_template
+from repo_sanitizer.buildsafe import (
+    doc_ipv4,
+    doc_ipv6,
+    in_version_context,
+    is_identifier,
+    is_template,
+    luhn_ok,
+)
 from repo_sanitizer.detectors.endpoint import (
     IPV4_PATTERN,
     IPV6_PATTERN,
@@ -66,6 +73,10 @@ _URL_ENDPOINT_NAMES = frozenset({
 #    (apiKey = "VALUE", AWS_SECRET_ACCESS_KEY=VALUE) → replace ONLY the captured
 #    value group, keeping the surrounding declaration intact (and skip templates).
 _GROUPED_SECRET_NAMES = frozenset({"generic_api_key", "aws_secret_key"})
+#  * credit_card → mask only if the digit run passes the Luhn checksum; a 16-digit
+#    float / Unity fileID / model weight that merely looks card-shaped is left
+#    intact (it is numeric DATA, masking it breaks the asset/model/JSON).
+_LUHN_NAMES = frozenset({"credit_card"})
 #  * secret_url_param ("?token=VALUE") → keep the "?name=" prefix, mask only the value.
 #
 # Everything else (jwt, aws_access_key_id, github/gitlab/slack/stripe tokens, ssn,
@@ -256,17 +267,29 @@ _PHONE_NAMES = ("phone_e164", "phone_ru", "phone")
 _PHONE_MASK = b"+0000000000"
 
 
-def _literal_repl(salt: bytes, values, prefix: str) -> list[tuple[bytes, bytes]]:
-    """Build (raw_bytes, mask) replacements for exact-literal scrubbing.
+def _literal_repl(salt: bytes, values, prefix: str) -> list[tuple[object, bytes]]:
+    """Build (matcher, mask) replacements for literal scrubbing.
 
-    Each value is matched in BOTH utf-8 AND cp1251 byte forms (a Cyrillic name /
-    secret in a cp1251 Bitrix blob would not match a utf-8-only literal), with a
-    single stable mask ``<prefix><hash(utf-8 value)>`` for every form. Longest
-    value first so a longer value containing a shorter one is masked first.
+    Each value gets a single stable mask ``<prefix><hash(utf-8 value)>``. The
+    matcher is:
+      * a WORD-BOUNDARIED compiled byte-regex when the value is a bare ASCII
+        identifier — so a standalone token is masked but a SUBSTRING of a larger
+        identifier is NOT (a literal ``Queue`` must not clobber ``QueueDeclare``,
+        ``com`` must not clobber ``components``); this was the dominant
+        secret/person-literal build break;
+      * else the raw bytes in BOTH utf-8 AND cp1251 forms (a Cyrillic name/secret
+        in a cp1251 Bitrix blob would miss a utf-8-only literal), exact-replaced.
+    Longest value first so a longer value containing a shorter one is masked first.
     """
-    out: list[tuple[bytes, bytes]] = []
+    out: list[tuple[object, bytes]] = []
     for v in sorted({s for s in (values or []) if s}, key=len, reverse=True):
         mask = (prefix + hash12(salt, v.encode("utf-8"))).encode()
+        if is_identifier(v):
+            out.append((
+                re.compile(rb"(?<![A-Za-z0-9_])" + re.escape(v.encode()) + rb"(?![A-Za-z0-9_])"),
+                mask,
+            ))
+            continue
         forms: set[bytes] = set()
         for enc in ("utf-8", "cp1251"):
             try:
@@ -276,6 +299,14 @@ def _literal_repl(salt: bytes, values, prefix: str) -> list[tuple[bytes, bytes]]
         for raw in forms:
             out.append((raw, mask))
     return out
+
+
+def _apply_literal(data: bytes, matcher: object, repl: bytes) -> bytes:
+    """Apply one (matcher, mask) from ``_literal_repl``: a compiled byte-regex
+    (word-boundaried identifier) → ``sub``; raw bytes → exact ``replace``."""
+    if isinstance(matcher, bytes):
+        return data.replace(matcher, repl) if matcher in data else data
+    return matcher.sub(lambda _m: repl, data)
 
 
 class Scrubber:
@@ -328,6 +359,7 @@ class Scrubber:
         self._url_endpoint_res: list[re.Pattern] = []           # host-mask, template-skip
         self._grouped_secret_res: list[re.Pattern] = []         # mask group(1) only
         self._secret_url_re: Optional[re.Pattern] = None        # keep "?name=", mask value
+        self._luhn_res: list[tuple[bytes, re.Pattern]] = []     # mask only if Luhn-valid
         self._other_pii: list[tuple[bytes, re.Pattern]] = []    # REDACTED_<NAME>_<hash>
         for name, pattern in (pii_pattern_defs or []):
             try:
@@ -344,6 +376,8 @@ class Scrubber:
                 self._secret_url_re = rx
             elif name in _GROUPED_SECRET_NAMES:
                 self._grouped_secret_res.append(rx)
+            elif name in _LUHN_NAMES:
+                self._luhn_res.append((name.encode(), rx))
             else:
                 self._other_pii.append((name.encode(), rx))
 
@@ -386,14 +420,13 @@ class Scrubber:
           * everything else → an identifier-safe REDACTED_<NAME>_<hash> token, never
             a "[name:hash]" marker (which breaks YAML/compose/nginx/JSON).
 
-        Secret/person literals are applied FIRST (whole-value, exact bytes) so a
-        secret which happens to contain an email/IP substring is masked entirely."""
-        for raw, repl in self._secret_repl:
-            if raw in data:
-                data = data.replace(raw, repl)
-        for raw, repl in self._person_repl:
-            if raw in data:
-                data = data.replace(raw, repl)
+        Secret/person literals are applied FIRST (identifier values word-boundaried,
+        everything else exact bytes) so a secret which happens to contain an email/IP
+        substring is masked entirely."""
+        for matcher, repl in self._secret_repl:
+            data = _apply_literal(data, matcher, repl)
+        for matcher, repl in self._person_repl:
+            data = _apply_literal(data, matcher, repl)
         if self._email_re is not None:
             data = self._email_re.sub(
                 lambda m: b"user_" + hash12(self.salt, m.group()).encode() + b"@example.invalid",
@@ -410,6 +443,11 @@ class Scrubber:
         # Secret URL param (?token=VALUE): keep "?name=", mask the value only.
         if self._secret_url_re is not None:
             data = self._secret_url_re.sub(self._mask_url_param, data)
+        # credit_card: mask only a Luhn-valid run (a card-shaped numeric-DATA run —
+        # Unity fileID / model weight / FBX coord — is left intact so the asset
+        # stays parseable/compilable).
+        for name, rx in self._luhn_res:
+            data = rx.sub(lambda m, _n=name: self._mask_if_luhn(m, _n), data)
         # Remaining PII/secret patterns → identifier-safe token (no "[…]" marker).
         for name, rx in self._other_pii:
             data = rx.sub(
@@ -455,6 +493,14 @@ class Scrubber:
             return raw
         host_mask = hash12(self.salt, host).encode() + b".example.invalid"
         return m.group("scheme") + host_mask + raw[m.end("host"):]
+
+    def _mask_if_luhn(self, m: "re.Match[bytes]", name: bytes) -> bytes:
+        """Mask a card-shaped match only if its digits pass Luhn; otherwise leave it
+        (numeric DATA, not a card)."""
+        raw = m.group()
+        if luhn_ok(raw.decode("ascii", "ignore")):
+            return b"REDACTED_" + name.upper() + b"_" + hash12(self.salt, raw[:64]).encode()
+        return raw
 
     def _mask_grouped(self, m: "re.Match[bytes]") -> bytes:
         """Replace ONLY the captured secret value (group 1) with REDACTED_<hash>,
@@ -524,7 +570,7 @@ class Scrubber:
         "Which IP is worth redacting" stays defined once in endpoint._is_public_ip.
         Runs LAST in the non-brand scrub, after any connection-string / URL pattern
         has claimed its full match."""
-        def _repl(m: "re.Match[bytes]", masker) -> bytes:
+        def _repl(m: "re.Match[bytes]", masker, version_aware: bool) -> bytes:
             raw = m.group()
             try:
                 value = raw.decode("ascii")
@@ -538,10 +584,16 @@ class Scrubber:
                 return raw
             if not _is_public_ip(ip):
                 return raw
+            # A 4-part dotted version (AssemblyVersion="4.0.0.0", mscorlib
+            # Version=4.0.0.0) is a valid public IPv4 — don't mask it as an IP.
+            if version_aware:
+                pre = m.string[max(0, m.start() - 28):m.start()].decode("ascii", "ignore")
+                if in_version_context(pre, len(pre)):
+                    return raw
             return masker(self.salt, raw)
 
-        data = self._ipv4_re.sub(lambda m: _repl(m, doc_ipv4), data)
-        data = self._ipv6_re.sub(lambda m: _repl(m, doc_ipv6), data)
+        data = self._ipv4_re.sub(lambda m: _repl(m, doc_ipv4, True), data)
+        data = self._ipv6_re.sub(lambda m: _repl(m, doc_ipv6, False), data)
         return data
 
     def message(self, message: bytes) -> bytes:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from repo_sanitizer.buildsafe import contains_mask, is_template
+from repo_sanitizer.buildsafe import contains_mask, is_template, luhn_ok
 from repo_sanitizer.detectors.base import (
     Category,
     Detector,
@@ -36,6 +36,10 @@ class RegexPIIDetector(Detector):
                 # secret and is deliberately left unmasked by the scrubber — so the
                 # gate must not flag it either (it carries no identifying value).
                 if is_template(value):
+                    continue
+                # A card-shaped match that fails Luhn is numeric DATA (a float /
+                # Unity fileID / model weight), not a card — not masked, not gated.
+                if pat.name == "credit_card" and not luhn_ok(value):
                     continue
                 line = target.content[:start].count("\n") + 1
                 findings.append(

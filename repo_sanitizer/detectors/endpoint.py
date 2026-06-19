@@ -3,6 +3,7 @@ from __future__ import annotations
 import ipaddress
 import re
 
+from repo_sanitizer.buildsafe import in_version_context
 from repo_sanitizer.detectors.base import (
     Category,
     Detector,
@@ -101,6 +102,12 @@ UNIVERSAL_URL_HOSTS = frozenset({
     "gcr.io", "ghcr.io", "quay.io", "registry.k8s.io", "k8s.io",
     # certificate authorities
     "letsencrypt.org",
+    # build installers / framework getters / schema + docs hosts whose URLs are
+    # literal build constants that identify nobody (masking them breaks
+    # Dockerfile RUN installers, composer/symfony bootstrap, xmlns/schema refs).
+    "getcomposer.org", "get.symfony.com", "symfony.com", "getpsalm.org",
+    "readthedocs.io", "readthedocs.org", "json.schemastore.org", "schemastore.org",
+    "phar.phpunit.de", "deb.nodesource.com", "dl.yarnpkg.com", "sh.rustup.rs",
     # code hosting (the host is public; an identifying org/repo in the PATH is
     # the brand layer's job). NOTE: hosts whose *single-label* subdomain is
     # CUSTOMER-controlled (sourceforge.net `<proj>.`, googlesource.com `<proj>.`,
@@ -221,6 +228,10 @@ class EndpointDetector(Detector):
                 except ValueError:
                     continue
                 if not _is_public_ip(ip):
+                    continue
+                # A 4-part dotted version (AssemblyVersion="4.0.0.0") is a valid
+                # public IPv4 — not a deployment IP, so don't flag it.
+                if pattern is IPV4_PATTERN and in_version_context(target.content, start):
                     continue
                 line = target.content[:start].count("\n") + 1
                 findings.append(
