@@ -8,6 +8,7 @@ from pathlib import Path
 from repo_sanitizer.context import RunContext
 from repo_sanitizer.steps._git_utils import (
     detect_default_branch,
+    ensure_valid_head_checkout,
     list_all_branch_tips,
     materialize_local_branches,
 )
@@ -77,6 +78,11 @@ def fetch(ctx: RunContext, source: str) -> None:
             capture_output=True,
             text=True,
         )
+    elif (dest / ".git").exists():
+        # Default-branch case: if the source bundle/repo has a broken or unborn
+        # HEAD, the working tree is empty and the whole working-tree pass would be
+        # skipped — repoint HEAD to the detected default branch so it runs.
+        ensure_valid_head_checkout(dest)
 
     # Record the branch topology so ref-reconcile can keep ALL branches (with
     # scrubbed names) in the output bundle. Captured AFTER the optional --rev

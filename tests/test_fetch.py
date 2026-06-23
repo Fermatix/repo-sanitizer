@@ -79,6 +79,35 @@ def test_fetch_materializes_all_branches(tmp_path: Path, rules_path: Path):
     assert "bugfix-commit" in bugfix_log
 
 
+def test_fetch_repoints_broken_default_head(tmp_path: Path, rules_path: Path):
+    # A source whose default HEAD points at a nonexistent ref (a real bundle
+    # hazard) must NOT leave an empty working tree — fetch repoints HEAD to an
+    # existing branch so the working-tree pass runs.
+    source_repo = tmp_path / "broken"
+    source_repo.mkdir(parents=True, exist_ok=True)
+    _run(["git", "init", "-b", "master"], source_repo)
+    _run(["git", "config", "user.name", "T"], source_repo)
+    _run(["git", "config", "user.email", "t@example.com"], source_repo)
+    (source_repo / "f.txt").write_text("hello\n", encoding="utf-8")
+    _run(["git", "add", "-A"], source_repo)
+    _run(["git", "commit", "-m", "c"], source_repo)
+    _run(["git", "checkout", "-b", "dev"], source_repo)
+    # Break HEAD: point it at a ref that does not exist.
+    _run(["git", "symbolic-ref", "HEAD", "refs/heads/HEAD"], source_repo)
+
+    out_dir = tmp_path / "out"
+    ctx = RunContext.create(
+        source=str(source_repo), out_dir=out_dir, rulepack_path=rules_path,
+        salt_env="REPO_SANITIZER_SALT",
+    )
+    fetch(ctx, str(source_repo))
+
+    tracked = _run(["git", "ls-files"], ctx.work_dir).stdout.strip()
+    assert "f.txt" in tracked, "broken HEAD left an empty working tree"
+    head = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"], ctx.work_dir).stdout.strip()
+    assert head in {"master", "dev"}
+
+
 def test_fetch_complex_branch_names(tmp_path: Path, rules_path: Path):
     source_repo = tmp_path / "source"
     source_repo.mkdir(parents=True)

@@ -34,13 +34,15 @@ def build_history_detectors(rulepack: Rulepack) -> list[Detector]:
     from repo_sanitizer.detectors.regex_pii import RegexPIIDetector
     from repo_sanitizer.detectors.dictionary import DictionaryDetector
     from repo_sanitizer.detectors.endpoint import EndpointDetector
+    from repo_sanitizer.detectors.legal_id import RuLegalIdDetector
     from repo_sanitizer.steps.scan import build_brand_terms
 
     brand_terms, keep = build_brand_terms(rulepack)
 
     detectors: list[Detector] = []
     if rulepack.pii_patterns:
-        detectors.append(RegexPIIDetector(rulepack.pii_patterns))
+        detectors.append(RegexPIIDetector(rulepack.pii_patterns, keep=keep))
+    detectors.append(RuLegalIdDetector())
     if brand_terms:
         detectors.append(DictionaryDetector({"brands": brand_terms}, keep=keep))
     domain_list = rulepack.dictionaries.get("domains", [])

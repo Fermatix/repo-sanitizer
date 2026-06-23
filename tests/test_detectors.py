@@ -331,6 +331,30 @@ def test_endpoint_keep_suppresses_subdomain():
     assert not any("acme.internal" in f.matched_value for f in findings)
 
 
+@pytest.mark.parametrize("host", [
+    "env.local",                 # `/.env.local` gitignore glob, not a domain
+    "host.docker.internal",      # Docker host-gateway alias
+    "gateway.docker.internal",
+    "myservice.default.svc.cluster.local",  # k8s in-cluster service
+])
+def test_endpoint_skips_generic_internal_hosts(host):
+    # These non-identifying standard internal hostnames must NOT be flagged
+    # (flagging `/.env.local` made the old pipeline over-redact it to
+    # `/.REDACTED_<hash>`, mangling the gitignore).
+    findings = EndpointDetector().detect(
+        ScanTarget(file_path="t.txt", content=f"x = {host}\n")
+    )
+    assert not any(host in f.matched_value for f in findings), host
+
+
+def test_endpoint_still_flags_identifying_internal_domain():
+    # A company-labelled internal domain is still a leak.
+    findings = EndpointDetector().detect(
+        ScanTarget(file_path="t.txt", content="host = jenkins.acmecorp.local\n")
+    )
+    assert any(f.matched_value == "jenkins.acmecorp.local" for f in findings)
+
+
 # ── Public vs private IP (Change 2) ──────────────────────────────────────────
 
 def test_endpoint_flags_public_ip():
