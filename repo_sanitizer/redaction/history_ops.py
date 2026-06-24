@@ -72,7 +72,7 @@ _URL_ENDPOINT_NAMES = frozenset({
 #  * Grouped secret patterns whose match wraps the secret VALUE in keyword + quotes
 #    (apiKey = "VALUE", AWS_SECRET_ACCESS_KEY=VALUE) → replace ONLY the captured
 #    value group, keeping the surrounding declaration intact (and skip templates).
-_GROUPED_SECRET_NAMES = frozenset({"generic_api_key", "aws_secret_key"})
+_GROUPED_SECRET_NAMES = frozenset({"generic_api_key", "aws_secret_key", "config_assignment_secret"})
 #  * credit_card → mask only if the digit run passes the Luhn checksum; a 16-digit
 #    float / Unity fileID / model weight that merely looks card-shaped is left
 #    intact (it is numeric DATA, masking it breaks the asset/model/JSON).
@@ -98,6 +98,23 @@ _SCHEME_AUTHORITY_RE = re.compile(
 def hash12(salt: bytes, value: bytes, length: int = 12) -> str:
     """HMAC-SHA256 of ``value`` under ``salt``, hex-truncated (matches replacements.py)."""
     return hmac.new(salt, value, "sha256").hexdigest()[:length]
+
+
+def _hash12s(salt: bytes, value: str, length: int = 12) -> str:
+    """``hash12`` for a str value (utf-8 encoded) — used by the str-mode decoded
+    PII pass so its masks match the byte-mode ones for the same value."""
+    return hmac.new(salt, value.encode("utf-8"), "sha256").hexdigest()[:length]
+
+
+def _decodes_as_text(data: bytes) -> bool:
+    """True if ``data`` decodes as UTF-8 (a NUL is valid UTF-8, so a NUL-bearing
+    source file passes; a real binary's invalid byte sequences fail). Tells a
+    text-file-with-a-stray-NUL apart from a real binary in the blob callback."""
+    try:
+        data.decode("utf-8")
+        return True
+    except UnicodeDecodeError:
+        return False
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -147,6 +164,7 @@ def load_brand_map(path: Union[str, Path]) -> list[dict]:
                 "replacement": r.get("replacement", "") or "",
                 "is_regex": _as_bool(r.get("is_regex"), default=True),
                 "preserve_case": _as_bool(r.get("preserve_case"), default=False),
+                "priority": _as_int(r.get("priority"), default=100),
             }
         )
     # Validate every row compiles NOW so a bad Pass-2 pattern fails loudly here,
@@ -163,18 +181,35 @@ def _as_bool(value: object, default: bool) -> bool:
     return str(value).strip().lower() in ("1", "true", "yes", "y", "on")
 
 
+def _as_int(value: object, default: int) -> int:
+    if value is None or value == "":
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def compile_brand_map(rows: list[dict]) -> list[tuple[re.Pattern, str, bool]]:
     """Compile brand rows → ``[(compiled, replacement, preserve_case)]``.
 
-    Sorted by pattern length DESC so a longer brand (``extyl``) is masked before
-    a shorter prefix (``ext``) — sequential ``re.sub`` passes, so order matters.
+    Ordered by ``(priority ASC, pattern-length DESC)``. Within one priority a
+    longer brand (``extyl``) is masked before a shorter prefix (``ext``) —
+    sequential ``re.sub`` passes, so order matters. ``priority`` (default 100)
+    lets a row jump the length sort: a SECRET/PII redaction row given a small
+    priority is applied BEFORE any brand substring rule, so a brand pattern that
+    is a longer STRING than the secret literal (``(?i)lkka`` vs the password
+    ``LKKA1``) can no longer mangle the secret before it is redacted. With every
+    row at the default, ordering is identical to the previous length-DESC behavior.
     Literal (``is_regex=False``) patterns get ``re.escape`` + ``IGNORECASE``;
     regex patterns are compiled verbatim (Pass-2 embeds its own ``(?i)`` / ``\\b``).
     A row that fails to compile RAISES ``ValueError`` — silently skipping it would
     let a mapped brand survive in all history while apply-map exits 0.
     """
     compiled: list[tuple[re.Pattern, str, bool]] = []
-    for row in sorted(rows, key=lambda r: len(r.get("pattern", "")), reverse=True):
+    for row in sorted(
+        rows, key=lambda r: (_as_int(r.get("priority"), 100), -len(r.get("pattern", "")))
+    ):
         pattern = row.get("pattern", "")
         if not pattern:
             continue
@@ -361,7 +396,20 @@ class Scrubber:
         self._secret_url_re: Optional[re.Pattern] = None        # keep "?name=", mask value
         self._luhn_res: list[tuple[bytes, re.Pattern]] = []     # mask only if Luhn-valid
         self._other_pii: list[tuple[bytes, re.Pattern]] = []    # REDACTED_<NAME>_<hash>
+        # Cyrillic-bearing patterns (fio_ru / ogrn_ru / kpp_ru / inn_ru): a BYTE
+        # regex cannot express a Cyrillic char class / lookbehind (each char is 2
+        # UTF-8 bytes), so a byte pass silently never matches — DETECTING the ФИО on
+        # the (decoded) scan but never REDACTING it in history. These compile as STR
+        # regexes and run over DECODED text (utf-8 → cp1251) in _scrub_nonbrand.
+        self._decoded_pii_res: list[tuple[str, re.Pattern]] = []  # str-mode → REDACTED_<NAME>_<hash>
         for name, pattern in (pii_pattern_defs or []):
+            # A non-ASCII (Cyrillic) pattern source must be matched in str mode.
+            if not pattern.isascii():
+                try:
+                    self._decoded_pii_res.append((name, re.compile(pattern, re.MULTILINE)))
+                except re.error:
+                    pass
+                continue
             try:
                 rx = re.compile(pattern.encode(), re.MULTILINE)
             except re.error:
@@ -455,6 +503,24 @@ class Scrubber:
                 + hash12(self.salt, m.group()[:64]).encode(),
                 data,
             )
+        # Cyrillic PII (fio_ru / ogrn_ru / kpp_ru / inn_ru): byte regexes cannot
+        # match Cyrillic, so decode once (utf-8 → cp1251) and apply the str-mode
+        # patterns, re-encoding in the same encoding (the masks are ASCII, so the
+        # round-trip is exact). Skipped for a blob that decodes as neither.
+        if self._decoded_pii_res:
+            for enc in ("utf-8", "cp1251"):
+                try:
+                    text = data.decode(enc)
+                except UnicodeDecodeError:
+                    continue
+                for name, rx in self._decoded_pii_res:
+                    text = rx.sub(
+                        lambda m, _n=name: "REDACTED_" + _n.upper() + "_"
+                        + _hash12s(self.salt, m.group()[:64]),
+                        text,
+                    )
+                data = text.encode(enc, errors="replace")
+                break
         if self._scrub_urls:
             data = self._scrub_url_hosts_bytes(data)
         if self._scrub_public_ips:
@@ -603,10 +669,18 @@ class Scrubber:
         return out
 
     def blob(self, blob, callback_data=None) -> None:
-        """Blob callback: skip binary, else non-brand scrub + brand map in place."""
+        """Blob callback: skip GENUINELY-binary blobs, else non-brand scrub +
+        brand map in place.
+
+        A raw NUL in the first 8 KB is NOT sufficient to call a blob binary: a TEXT
+        file with a stray NUL (a minified bundle, a generated source) decodes as
+        UTF-8 and must still be scrubbed — else a brand / secret in it survives
+        untouched in history (the documented `notarize.js` leak rode along under a
+        NUL). Skip only when a NUL is present AND the bytes do not decode as UTF-8
+        (a real binary / image / compiled artifact)."""
         try:
             data = blob.data
-            if b"\x00" in data[:8192]:
+            if b"\x00" in data[:8192] and not _decodes_as_text(data):
                 return
             out = self._scrub_nonbrand(data)
             out = apply_brand_map_bytes(out, self._brands)

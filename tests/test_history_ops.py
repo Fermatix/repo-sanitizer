@@ -116,11 +116,72 @@ def test_person_literal_cp1251(pii_defs):
 
 
 def test_blob_skips_binary(pii_defs):
+    # GENUINELY binary (a NUL *and* invalid-UTF-8 bytes 0xFF/0x80) → untouched.
     scr = Scrubber(SALT, pii_pattern_defs=pii_defs, secret_literals=["supersecretvalue"])
-    original = b"\x00\x01supersecretvalue\x02"
+    original = b"\x00\x01\xff\xfesupersecretvalue\x80\x81"
     blob = _Blob(original)
     scr.blob(blob)
-    assert blob.data == original  # null byte → treated as binary, untouched
+    assert blob.data == original  # NUL + undecodable bytes → binary, untouched
+
+
+def test_blob_scrubs_text_with_stray_nul(pii_defs):
+    # A TEXT file with a stray NUL (decodes as UTF-8) must STILL be scrubbed —
+    # the `notarize.js` leak class (a brand/secret rode along under a NUL because
+    # the old "NUL → skip" rule left the whole blob untouched).
+    scr = Scrubber(SALT, pii_pattern_defs=pii_defs, secret_literals=["supersecretvalue"])
+    original = b"line1\nconst x = 'supersecretvalue';\x00\nline3\n"
+    blob = _Blob(original)
+    scr.blob(blob)
+    assert b"supersecretvalue" not in blob.data
+    assert b"REDACTED_" in blob.data
+    assert b"\x00" in blob.data  # the stray NUL is preserved; only the secret is masked
+
+
+def test_config_assignment_secret_value_only(pii_defs):
+    # H2: a keyword-assigned config secret gitleaks misses (low entropy / dashes /
+    # short) is masked VALUE-ONLY via the grouped-secret route, keeping the YAML
+    # key/quotes valid; a non-secret key (DB_PORT) and a placeholder stay intact.
+    scr = Scrubber(SALT, pii_pattern_defs=pii_defs)
+    blob = _Blob(
+        b"DB_PASSWORD: '93V8M0412TJXE'\n"
+        b"IQSMS_PASSWORD: '274495'\n"
+        b"DB_PORT: '6432'\n"
+        b"PUSHER_APP_KEY: 'app-key'\n"
+        b"SECRET: '%env(APP_SECRET)%'\n"
+    )
+    scr.blob(blob)
+    out = blob.data
+    assert b"93V8M0412TJXE" not in out and b"'274495'" not in out
+    assert b"DB_PASSWORD: 'REDACTED_" in out   # key + quotes preserved
+    assert b"DB_PORT: '6432'" in out           # non-secret key untouched
+    assert b"PUSHER_APP_KEY: 'app-key'" in out  # placeholder untouched
+    assert b"%env(APP_SECRET)%" in out          # env-var indirection untouched
+
+
+def test_cyrillic_pii_regex_redacted_in_history(pii_defs):
+    # A Cyrillic regex-PII pattern (fio_ru) must REDACT in the history rewrite, not
+    # just be detected: the Scrubber applies the Cyrillic patterns on DECODED text,
+    # so the byte-regex Cyrillic-character-class blind spot is gone. utf-8 + cp1251.
+    scr = Scrubber(SALT, pii_pattern_defs=pii_defs)
+    for enc, token in (("utf-8", "Латышев Сергей Игоревич"), ("cp1251", "Иванов Иван Иванович")):
+        blob = _Blob(f"Автор: {token}\n".encode(enc))
+        scr.blob(blob)
+        assert token.encode(enc) not in blob.data, f"{enc} ФИО survived"
+        assert b"REDACTED_FIO_RU_" in blob.data
+
+
+def test_brand_map_priority_secret_before_brand():
+    # H7: a SECRET redaction row with a small priority applies BEFORE a brand
+    # substring rule that is a LONGER string than the secret literal — so a brand
+    # like `(?i)lkka` can no longer mangle the password `LKKA1`.
+    rows = [
+        {"pattern": "(?i)lkka", "replacement": "Acme", "is_regex": True, "priority": 100},
+        {"pattern": r"(?i)\bLKKA1\b", "replacement": "REDACTED", "is_regex": True, "priority": 0},
+    ]
+    compiled = compile_brand_map(rows)
+    assert compiled[0][1] == "REDACTED"  # priority 0 compiles first
+    out = apply_brand_map("the password is LKKA1 today", compiled)
+    assert "REDACTED" in out and "Acme" not in out
 
 
 def test_brands_not_scrubbed_in_pass1(pii_defs):
@@ -227,7 +288,7 @@ def test_load_brand_map_json(tmp_path):
     p = tmp_path / "m.json"
     p.write_text(json.dumps([{"pattern": "a", "replacement": "b"}]))
     rows = load_brand_map(p)
-    assert rows == [{"pattern": "a", "replacement": "b", "is_regex": True, "preserve_case": False}]
+    assert rows == [{"pattern": "a", "replacement": "b", "is_regex": True, "preserve_case": False, "priority": 100}]
 
 
 def test_load_brand_map_json_rules_wrapper(tmp_path):
@@ -241,7 +302,7 @@ def test_load_brand_map_csv(tmp_path):
     p = tmp_path / "m.csv"
     p.write_text("pattern,replacement,is_regex,preserve_case\nfoo,bar,false,true\n,skipme,true,false\n")
     rows = load_brand_map(p)
-    assert rows == [{"pattern": "foo", "replacement": "bar", "is_regex": False, "preserve_case": True}]
+    assert rows == [{"pattern": "foo", "replacement": "bar", "is_regex": False, "preserve_case": True, "priority": 100}]
 
 
 # ── public-IP-aware scrub (Pass-1; replaces the removed regex `ipv4`) ───────────

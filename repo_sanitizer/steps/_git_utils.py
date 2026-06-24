@@ -98,6 +98,40 @@ def list_all_branch_tips(repo_dir: Path) -> dict[str, str]:
     return tips
 
 
+def ensure_valid_head_checkout(repo_dir: Path) -> str:
+    """If HEAD does not resolve to a commit (a broken/unborn default branch — e.g.
+    a bundle whose default ref is a nonexistent ``refs/heads/HEAD``), check out the
+    detected default branch so the WORKING TREE is populated. Without this the
+    inventory finds 0 files and the entire working-tree pass (secret/brand/path
+    detection + redaction) is silently skipped — only history is scrubbed. Returns
+    the branch checked out, or "" if HEAD was already valid / no branch exists."""
+    valid = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
+        cwd=str(repo_dir), capture_output=True,
+    )
+    if valid.returncode == 0:
+        return ""  # HEAD already resolves — nothing to do
+    # Pick a branch that ACTUALLY EXISTS as a local head. detect_default_branch may
+    # return a name from a stale `origin/HEAD` symref (e.g. `main`) that was never
+    # materialized as a real branch — checking it out would fail and leave the tree
+    # empty. Prefer the detected default, then the usual mains, then any head.
+    heads = list_local_branch_tips(repo_dir)
+    if not heads:
+        return ""
+    detected = detect_default_branch(repo_dir)
+    candidates = [detected, "master", "main", "develop", "dev", "trunk"]
+    target = next((c for c in candidates if c in heads), sorted(heads)[0])
+    r = subprocess.run(
+        ["git", "checkout", "--force", target],
+        cwd=str(repo_dir), capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        logger.warning("Could not repoint broken HEAD to %r: %s", target, r.stderr.strip())
+        return ""
+    logger.info("Repointed broken/unborn HEAD → %r (working tree populated)", target)
+    return target
+
+
 def detect_default_branch(repo_dir: Path) -> str:
     """Best-effort default branch: ``origin/HEAD`` → current HEAD branch →
     ``main``/``master`` → first local branch → "" (none)."""

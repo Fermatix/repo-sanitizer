@@ -136,7 +136,11 @@ def _collect_secret_literals(ctx: RunContext) -> list[str]:
     for f in finding_sources:
         det = getattr(f, "detector", "")
         val = getattr(f, "matched_value", "")
-        if val and det in ("SecretsDetector", "EndpointDetector"):
+        # RuLegalIdDetector (checksum-valid bare ИНН/ОГРН) is a CODE detector the
+        # Scrubber does not re-apply, so its exact-digit findings are collected as
+        # literals here to be masked across history (the regex inn/ogrn/kpp/fio
+        # patterns are re-applied by the Scrubber via pii_pattern_defs).
+        if val and det in ("SecretsDetector", "EndpointDetector", "RuLegalIdDetector"):
             # A public-IP endpoint is masked to a VALID documentation-range IP by
             # the scrubber's public-IP pass; collecting it as an exact literal would
             # instead stamp REDACTED_<hash> over it (a non-IP that breaks a
@@ -150,8 +154,14 @@ def _collect_secret_literals(ctx: RunContext) -> list[str]:
 
     work = str(ctx.work_dir)
     try:
-        # (1) full-history blob content (native git mode → all commits/branches)
-        vals, ok = _gitleaks_secret_values(["gitleaks", "detect", "--source", work], cwd=work)
+        # (1) full-history blob content. `--log-opts=--all` is EXPLICIT so coverage
+        # spans EVERY branch (heads + remotes), not just HEAD's reachable commits —
+        # the deliverable keeps ALL branches, so a secret living only in a non-HEAD
+        # branch must be collected regardless of gitleaks' default / a repo
+        # `.gitleaks.toml logOpts`.
+        vals, ok = _gitleaks_secret_values(
+            ["gitleaks", "detect", "--source", work, "--log-opts=--all"], cwd=work
+        )
         secrets.update(vals)
         if not ok:
             logger.warning("full-history gitleaks pass produced no report (continuing best-effort)")
@@ -309,8 +319,10 @@ def run_history_secret_gate(ctx: RunContext) -> list:
                 Path(report), context=f"post-rewrite {label}"
             )
 
-    # (1) full-history blob content (native git mode → all commits/branches)
-    items = list(_run(["gitleaks", "detect", "--source", work], work, "blobs"))
+    # (1) full-history blob content. `--log-opts=--all` is EXPLICIT so the gate
+    # verifies EVERY shipped branch (the deliverable keeps them all), never just
+    # HEAD's reachable commits — see the same note in _collect_secret_literals.
+    items = list(_run(["gitleaks", "detect", "--source", work, "--log-opts=--all"], work, "blobs"))
     # (2) commit MESSAGE text — native gitleaks does not scan messages, so dump
     # them and scan as a flat file (mirrors the collection pass).
     msgs = subprocess.run(

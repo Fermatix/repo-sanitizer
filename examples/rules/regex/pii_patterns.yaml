@@ -75,6 +75,32 @@ patterns:
     category: PII
     severity: HIGH
 
+  - name: ogrn_ru
+    # Russian OGRN / OGRNIP (state registration number): label + 13 or 15 digits.
+    # Label-anchored (a bare 13-digit number collides with unix-ms timestamps);
+    # the checksum-validated label-less form is the RuLegalIdDetector's job.
+    pattern: '\b(?:ОГРНИП|ОГРН|OGRNIP|OGRN)[:\s№]*\d{13}(?:\d{2})?\b'
+    category: PII
+    severity: HIGH
+
+  - name: kpp_ru
+    # Russian KPP (tax registration reason code): label + 9 digits.
+    pattern: '\b(?:КПП|KPP)[:\s№]*\d{9}\b'
+    category: PII
+    severity: HIGH
+
+  - name: fio_ru
+    # Russian full name (ФИО) triple, anchored on the distinctive PATRONYMIC
+    # suffix (…ович/…евич/…ич/…овна/…евна/…инична/…оглы/…кызы): two or three
+    # Capitalized Cyrillic words where one is a patronymic — `Латышев Сергей
+    # Игоревич`, `Иван Иванович Петров`. The patronymic anchor keeps the false-
+    # positive rate near zero (ordinary Cyrillic prose / code identifiers do not
+    # match), catching real people in fixtures / @author / legal blocks that the
+    # NER pass (off by default in the driver) would otherwise be the only line on.
+    pattern: '(?<![А-Яа-яЁё])(?:[А-ЯЁ][а-яё]+\s+){1,2}[А-ЯЁ][а-яё]+(?:ович|евич|ьевич|ьич|овна|евна|инична|ична|оглы|кызы)(?:\s+[А-ЯЁ][а-яё]+)?(?![А-Яа-яЁё])'
+    category: PII
+    severity: HIGH
+
   # ════════════════════════════════════════════════════════════════
   # SECRETS — Credentials, tokens, API keys
   # ════════════════════════════════════════════════════════════════
@@ -191,6 +217,22 @@ patterns:
   - name: generic_api_key
     # Heuristic: variable named *key/token/secret/password* followed by a long value
     pattern: '(?i)(?:api[_\-.]?key|api[_\-.]?token|access[_\-.]?token|secret[_\-.]?key|auth[_\-.]?token|private[_\-.]?key)["\s:=]+[''"]([A-Za-z0-9_\-+/=]{20,})[''"]'
+    category: SECRET
+    severity: HIGH
+
+  - name: config_assignment_secret
+    # Keyword-gated config-assignment secret (group 1 = the VALUE; routed through
+    # the Scrubber's _GROUPED_SECRET_NAMES so only the value is masked, keeping the
+    # YAML key/quotes valid). Broader than generic_api_key: catches the low-entropy
+    # / dashed / short keyworded secrets gitleaks AND generic_api_key miss — in one
+    # real k8s ConfigMap gitleaks found 8 of 18 and MISSED `BITRIX24_SECRET_KEY:
+    # 'i0np28pkmxfd7i00'`, `DB_PASSWORD: '93V8M0412TJXE'`, `MAIL_PASSWORD:
+    # 'nrS-Ws2-JwY-7yr'`, `IQSMS_PASSWORD: '274495'`, a dashed `AWS_SECRET_ACCESS_KEY`.
+    # The leading negative-lookaheads drop our own masks + placeholders (changeme /
+    # app-key / your-… / xxx / 000…) and env-var indirections (`%env(…)%`/`${…}`
+    # excluded by the value class; `process.env.X` / `getenv()` / `config()` /
+    # `ENV[…]` by the lookahead) — so it does not over-redact or break `%env(…)%`.
+    pattern: '(?i)\b[a-z0-9_.]*(?:passwd|password|pwd|secret|token|api[_-]?key|apikey|access[_-]?key(?:[_-]?id)?|secret[_-]?key|private[_-]?key|passphrase|client[_-]?secret|app[_-]?key|auth[_-]?(?:key|token)|[_.-]salt)\b[''"]?\s*[:=]\s*[''"]?(?!(?:REDACTED_|ANON_PER_|ANON_ORG_|TERM_|Author_|author_|user_[0-9a-f]))(?!(?:null|none|nil|true|false|undefined|changeme|change[_-]?me|your[_-]|example|placeholder|disabled|enabled|process\.env|os\.environ|getenv|env\(|config\(|ENV\[|app[_-](?:id|key|secret)\b|secret\b|password\b|token\b|[*xX]{3,}\b|0{4,}\b)[''"\s,;}#]?)([A-Za-z0-9_./+=:@!#^&*~|-]{5,})'
     category: SECRET
     severity: HIGH
 

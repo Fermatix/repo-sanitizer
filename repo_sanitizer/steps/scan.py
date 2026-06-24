@@ -70,6 +70,7 @@ def build_detectors(
     from repo_sanitizer.detectors.regex_pii import RegexPIIDetector
     from repo_sanitizer.detectors.dictionary import DictionaryDetector
     from repo_sanitizer.detectors.endpoint import EndpointDetector
+    from repo_sanitizer.detectors.legal_id import RuLegalIdDetector
     from repo_sanitizer.detectors.ner import NERDetector
 
     brand_terms, keep = build_brand_terms(rulepack)
@@ -77,13 +78,21 @@ def build_detectors(
     detectors: list[Detector] = []
     detectors.append(SecretsDetector())
     if rulepack.pii_patterns:
-        detectors.append(RegexPIIDetector(rulepack.pii_patterns))
+        detectors.append(RegexPIIDetector(rulepack.pii_patterns, keep=keep))
+    detectors.append(RuLegalIdDetector())
     if brand_terms:
         detectors.append(DictionaryDetector({"brands": brand_terms}, keep=keep))
     domain_list = rulepack.dictionaries.get("domains", [])
     detectors.append(EndpointDetector(domain_list, keep=keep))
     if ner_scope != "off":
-        detectors.append(NERDetector(rulepack.ner, service_url=ner_service_url, keep=keep))
+        if getattr(rulepack.ner, "backend", "hf") == "natasha":
+            # Lightweight CPU Russian NER (no torch/GPU). Emits PERSON findings as
+            # NERDetector/PII, so the existing person-literal collection + ANON_PER
+            # redaction pick them up unchanged.
+            from repo_sanitizer.detectors.ner_natasha import NatashaNERDetector
+            detectors.append(NatashaNERDetector(keep=keep))
+        else:
+            detectors.append(NERDetector(rulepack.ner, service_url=ner_service_url, keep=keep))
     return detectors
 
 

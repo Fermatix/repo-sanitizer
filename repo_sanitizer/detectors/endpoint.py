@@ -14,6 +14,27 @@ from repo_sanitizer.detectors.base import (
 
 INTERNAL_TLDS = (".internal", ".corp", ".local", ".lan", ".intra")
 
+# Standard, NON-identifying hosts that happen to end in an "internal" TLD: the
+# Docker/minikube host-gateway aliases, the framework `.env.local` convention (a
+# `/.env.local` gitignore glob matches the bare `env.local`), and the k8s
+# in-cluster service suffix `*.svc.cluster.local`. None names a company/machine —
+# flagging them is a false positive (and the old pipeline then over-redacted
+# `/.env.local` → `/.REDACTED_<hash>`, mangling the gitignore). An identifying
+# internal domain (`jenkins.acmecorp.local`) is NOT in this set and is still flagged.
+_GENERIC_INTERNAL_HOSTS = frozenset({
+    "host.docker.internal", "gateway.docker.internal", "vm.docker.internal",
+    "host.minikube.internal", "kubernetes.docker.internal", "docker.internal",
+    "docker.for.mac.localhost", "docker.for.win.localhost",
+    "env.local", "app.local", "dev.local", "test.local", "web.local", "api.local",
+    "localhost.local",
+})
+
+
+def _is_generic_internal_host(domain: str) -> bool:
+    """True for the standard non-identifying internal hostnames above + the k8s
+    in-cluster service suffix `*.svc.cluster.local`."""
+    return domain in _GENERIC_INTERNAL_HOSTS or domain.endswith(".svc.cluster.local")
+
 # Dotted IPv4 quad. The lookarounds (not the \b shorthand) ensure an adjacent
 # '.digit' suppresses the match, so the leading quad of a version string or OID
 # (1.2.3.4.5, 1.3.6.1.4.1.311) is NOT mistaken for an IP. Validity / 999.x
@@ -121,6 +142,20 @@ UNIVERSAL_URL_HOSTS = frozenset({
     # Google-controlled (no customer subdomains) and stays.
     "jsdelivr.net", "cdnjs.cloudflare.com", "unpkg.com",
     "gstatic.com", "bootstrapcdn.com",
+    # very-widespread public SaaS whose host identifies NOBODY (the per-customer
+    # identity lives in the URL PATH, scrubbed by the Pass-2 brand map — same as
+    # github.com). Masking these is pure over-anonymization + build/semantic
+    # breakage (a Notion-integration repo's every `notion.so` call became
+    # `<hash>.example.invalid`). The keep-list (§C) wants these KEPT, like Google.
+    # SINGLE-TENANT hosts ONLY — MULTI-TENANT clouds whose SUBDOMAIN is the
+    # customer (yandexcloud.net `rc1b-…mdb.yandexcloud.net`, bitrix24.ru
+    # `<company>.bitrix24.ru`, *.amazonaws.com) are deliberately ABSENT so a
+    # customer-identifying deployment host is still masked.
+    "notion.so", "notion.site", "notion.com",
+    "telegram.org", "telegram.me", "t.me", "telegram.dog",
+    "slack.com", "discord.com", "discord.gg", "discordapp.com",
+    "figma.com", "gravatar.com",
+    "yandex.ru", "ya.ru", "yandex.com",  # fixed Yandex service hosts (mail/metrika/disk); NOT yandexcloud.net
 })
 
 
@@ -304,6 +339,8 @@ class EndpointDetector(Detector):
                 domain.endswith("." + k) for k in self.keep
             ):
                 continue
+            if _is_generic_internal_host(domain):
+                continue  # docker/minikube/k8s/`.env.local` standard host → not a leak
             is_internal = any(domain.endswith(tld) for tld in INTERNAL_TLDS)
             is_in_list = domain in self.domain_list or any(
                 domain.endswith("." + d) for d in self.domain_list
