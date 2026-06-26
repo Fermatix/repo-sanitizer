@@ -1,11 +1,13 @@
 # Example input list for `repo-sanitizer sanitize-batch`.
 # One repository URL per line. Blank lines and lines starting with `#` are ignored.
 #
-# Use the repository URL (so all branches are pulled). Private repos need
-# credentials configured up front — either configure a git credential helper
-# / ssh-agent, or put a read_repository token straight in the URL:
+# Use the repository URL (so all branches are pulled). Before starting, a
+# pre-flight checks access to each URL: it tries your existing HTTPS creds,
+# then SSH keys, and only if both fail does it prompt — ONCE PER HOST (not per
+# repo), reusing that token for every repo on the same host. For an unattended
+# run, configure creds up front: a git credential helper / ssh-agent, or a
+# read_repository token in the URL:
 #   https://oauth2:<TOKEN>@gitlab.com/<group>/<repo>.git
-# Batch workers run without a terminal and will NOT prompt for credentials.
 #
 # Output for each repo lands in <out>/<key>/, where <key> is the URL's last
 # path segment.

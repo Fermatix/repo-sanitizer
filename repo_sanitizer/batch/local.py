@@ -14,23 +14,31 @@ Layout: each repo's output lands in ``<out>/<key>/`` exactly as a single
 from __future__ import annotations
 
 import concurrent.futures
+import getpass
 import json
 import logging
 import multiprocessing
 import os
-from dataclasses import dataclass
+import subprocess
+import sys
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
+@dataclass
 class LocalTask:
-    source: str
+    source: str  # original, as listed — used for key/display/state (never carries a token)
     key: str
     out_dir: str  # str (not Path) so it is trivially picklable to workers
+    clone_url: str = ""  # what the worker actually clones (may be an ssh or token URL)
+
+    def __post_init__(self) -> None:
+        if not self.clone_url:
+            self.clone_url = self.source
 
 
 @dataclass(frozen=True)
@@ -116,7 +124,7 @@ def process_local_repo(task: LocalTask, params: RunParams) -> LocalResult:
         from repo_sanitizer.pipeline import run_sanitize
 
         exit_code = run_sanitize(
-            source=task.source,
+            source=task.clone_url,
             out_dir=Path(task.out_dir),
             rulepack_path=Path(params.rulepack_path),
             salt_env=params.salt_env,
@@ -163,6 +171,116 @@ def _filter_tasks(tasks: list[LocalTask], state: dict, retry_failed: bool) -> li
     return pending
 
 
+# --- pre-flight authorization ---------------------------------------------
+
+# ssh that never blocks on a passphrase/host prompt and auto-trusts new hosts
+# (so the later headless worker clones don't trip on an unknown host key).
+_SSH_BATCH = "ssh -oBatchMode=yes -oStrictHostKeyChecking=accept-new -oConnectTimeout=10"
+
+
+def _is_http(src: str) -> bool:
+    return src.startswith("http://") or src.startswith("https://")
+
+
+def _is_ssh(src: str) -> bool:
+    return src.startswith("git@") or src.startswith("ssh://")
+
+
+def _ls_remote(url: str, *, ssh: bool = False, prompt: bool = False, timeout: int = 60) -> bool:
+    """Return True if `git ls-remote url` authenticates (no hang, no prompt)."""
+    env = dict(os.environ)
+    if ssh:
+        env["GIT_SSH_COMMAND"] = _SSH_BATCH
+    if not prompt:
+        env["GIT_TERMINAL_PROMPT"] = "0"
+    try:
+        subprocess.run(
+            ["git", "ls-remote", url],
+            check=True, capture_output=True, text=True, env=env, timeout=timeout,
+        )
+        return True
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return False
+
+
+def _https_to_ssh(url: str) -> str | None:
+    """`https://host/group/repo(.git)` -> `git@host:group/repo.git` (scp form)."""
+    p = urlsplit(url)
+    if not p.hostname or not p.path.strip("/"):
+        return None
+    path = p.path.lstrip("/")
+    if not path.endswith(".git"):
+        path += ".git"
+    return f"git@{p.hostname}:{path}"
+
+
+def _inject_creds(url: str, user: str, secret: str) -> str:
+    """Put `user:secret@` into an https URL (URL-encoded). Never logged."""
+    p = urlsplit(url)
+    netloc = f"{quote(user, safe='')}:{quote(secret, safe='')}@{p.hostname}"
+    if p.port:
+        netloc += f":{p.port}"
+    return urlunsplit((p.scheme, netloc, p.path, p.query, p.fragment))
+
+
+def preflight_auth(tasks: list[LocalTask], *, allow_ssh: bool = True) -> list[LocalTask]:
+    """Resolve auth for every remote task BEFORE the batch starts.
+
+    Per remote URL, in order: (1) try as-is — existing HTTPS creds (helper /
+    token-in-URL); (2) try SSH with the user's keys (rewrites the task to the
+    ssh URL on success); (3) if a terminal is attached, prompt once per host
+    for a token and bake it into the clone URL. Local paths/bundles need no
+    auth. Returns the tasks that still could not authenticate.
+    """
+    interactive = sys.stdin.isatty() and sys.stderr.isatty()
+    remote = [t for t in tasks if _is_http(t.source) or _is_ssh(t.source)]
+    if not remote:
+        return []
+    logger.info("Pre-flight: checking access to %d remote repo(s)...", len(remote))
+
+    need_creds: list[LocalTask] = []  # http(s) that failed as-is and via ssh
+    unresolved: list[LocalTask] = []
+    for t in remote:
+        if _is_ssh(t.source):
+            if _ls_remote(t.source, ssh=True):
+                continue
+            unresolved.append(t)
+            continue
+        # http(s): 1) as-is (existing creds), 2) ssh fallback
+        if _ls_remote(t.source):
+            continue
+        if allow_ssh:
+            ssh_url = _https_to_ssh(t.source)
+            if ssh_url and _ls_remote(ssh_url, ssh=True):
+                t.clone_url = ssh_url
+                logger.info("[%s] authenticated via SSH", t.key)
+                continue
+        need_creds.append(t)
+
+    # 3) prompt once per host for the still-failing http(s) repos
+    if need_creds and interactive:
+        creds: dict[str, tuple[str, str]] = {}
+        for t in need_creds:
+            host = urlsplit(t.source).hostname or ""
+            if host not in creds:
+                print(f"\nAuthentication required for {host} (e.g. {t.source})", file=sys.stderr)
+                user = input(f"  Username for {host} [oauth2]: ").strip() or "oauth2"
+                secret = getpass.getpass(f"  Password / access token for {host}: ")
+                creds[host] = (user, secret)
+            user, secret = creds[host]
+            authed = _inject_creds(t.source, user, secret)
+            if _ls_remote(authed):
+                t.clone_url = authed  # token stays in-memory; logs/state use t.source
+                logger.info("[%s] authenticated via HTTPS token", t.key)
+            else:
+                logger.error("[%s] credentials for %s did not work", t.key, host)
+                unresolved.append(t)
+    else:
+        unresolved.extend(need_creds)
+
+    return unresolved
+
+
 def run_local_batch(
     *,
     list_file: Path,
@@ -176,6 +294,7 @@ def run_local_batch(
     ner_service_url: str | None = None,
     ner_scope: str = "head",
     ner_service_port: int = 8765,
+    preflight: bool = True,
 ) -> int:
     """Sanitize every repo in ``list_file`` into ``out/<key>``. Returns a
     process exit code: 0 if every processed repo passed its gates, else 1."""
@@ -187,6 +306,21 @@ def run_local_batch(
     tasks = _build_tasks(sources, out)
     state = _load_state(state_file)
     pending = _filter_tasks(tasks, state, retry_failed)
+
+    # Resolve auth for remote URLs up front (SSH attempt, then credential
+    # prompt) so a missing credential aborts BEFORE the NER service + workers
+    # spin up — rather than failing each worker headlessly mid-run.
+    if preflight and pending:
+        unresolved = preflight_auth(pending)
+        if unresolved:
+            logger.error("Cannot authenticate to %d repo(s) — aborting before start:", len(unresolved))
+            for t in unresolved:
+                logger.error("  %s", t.source)
+            logger.error(
+                "Configure credentials (token-in-URL / credential helper / ssh-agent) "
+                "or drop these from the list, then re-run. Use --no-preflight to skip this check."
+            )
+            return 1
 
     if workers is None or workers <= 0:
         workers = min(8, max(1, (os.cpu_count() or 2) - 2))

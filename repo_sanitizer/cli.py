@@ -170,6 +170,12 @@ def sanitize_batch(
     ner_service_port: int = typer.Option(
         8765, "--ner-service-port", help="Port for the shared NER service started for this batch"
     ),
+    preflight: bool = typer.Option(
+        True, "--preflight/--no-preflight",
+        help="Before starting, check access to each remote URL: try existing HTTPS "
+             "credentials, then SSH keys, then prompt for a token. Aborts if any repo "
+             "is unreachable, instead of failing workers mid-run.",
+    ),
 ) -> None:
     """Sanitize every repo listed in a file into <out>/<key>/ — local sources, local output.
 
@@ -195,6 +201,7 @@ def sanitize_batch(
             ner_service_url=ner_service_url,
             ner_scope=ner_scope,
             ner_service_port=ner_service_port,
+            preflight=preflight,
         )
     except Exception as e:
         logging.getLogger(__name__).error("Batch failed: %s", _summarize_batch_error(e))
