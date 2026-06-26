@@ -135,6 +135,73 @@ def sanitize(
     raise typer.Exit(code=exit_code)
 
 
+@app.command("sanitize-batch")
+def sanitize_batch(
+    list_file: Path = typer.Argument(
+        ...,
+        help="Text file with one repo per line (local path, .bundle, or Git URL). "
+             "Blank lines and # comments are ignored.",
+    ),
+    rulepack: Path = typer.Option(..., "--rulepack", help="Path to rulepack directory"),
+    out: Path = typer.Option(..., "--out", help="Output root; each repo goes to <out>/<key>/"),
+    workers: int = typer.Option(
+        0, "--workers", help="Parallel worker processes (default: min(8, cpu-2))"
+    ),
+    retry_failed: bool = typer.Option(
+        False, "--retry-failed", help="Re-process repos that failed in a previous run"
+    ),
+    salt_env: str = typer.Option(
+        "REPO_SANITIZER_SALT", "--salt-env", help="Env variable name containing the salt"
+    ),
+    max_file_mb: int = typer.Option(20, "--max-file-mb", help="Max file size in MB"),
+    ner_device: Optional[str] = typer.Option(
+        None, "--ner-device",
+        help="Device for the shared NER model: cpu | cuda | cuda:0 | auto (overrides policies.yaml)",
+    ),
+    ner_service_url: Optional[str] = typer.Option(
+        None, "--ner-service-url",
+        help="URL of an already-running NER service. If set, no service is started for the batch.",
+    ),
+    ner_scope: str = typer.Option(
+        "head", "--ner-scope",
+        help="Where NER runs per repo: head (working tree only — default) | all (also history) | "
+             "off (never load NER — no service started).",
+    ),
+    ner_service_port: int = typer.Option(
+        8765, "--ner-service-port", help="Port for the shared NER service started for this batch"
+    ),
+) -> None:
+    """Sanitize every repo listed in a file into <out>/<key>/ — local sources, local output.
+
+    Reuses the per-repo pipeline and a single shared NER service across all
+    workers. No GitLab discovery and no push (unlike `batch run`).
+    """
+    _setup_logging()
+    try:
+        from repo_sanitizer.batch.local import run_local_batch
+    except ModuleNotFoundError as e:
+        _exit_for_missing_dependency(e, "batch mode")
+
+    try:
+        exit_code = run_local_batch(
+            list_file=list_file,
+            rulepack=rulepack,
+            out=out,
+            workers=workers or None,
+            retry_failed=retry_failed,
+            salt_env=salt_env,
+            max_file_mb=max_file_mb,
+            ner_device=ner_device,
+            ner_service_url=ner_service_url,
+            ner_scope=ner_scope,
+            ner_service_port=ner_service_port,
+        )
+    except Exception as e:
+        logging.getLogger(__name__).error("Batch failed: %s", _summarize_batch_error(e))
+        raise typer.Exit(code=1)
+    raise typer.Exit(code=exit_code)
+
+
 @app.command()
 def scan(
     source: str = typer.Argument(..., help="Local path or Git URL of the repository"),
