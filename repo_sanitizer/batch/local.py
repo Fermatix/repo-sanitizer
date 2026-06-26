@@ -19,6 +19,7 @@ import json
 import logging
 import multiprocessing
 import os
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -144,6 +145,16 @@ def process_local_repo(task: LocalTask, params: RunParams) -> LocalResult:
         return LocalResult(
             key=task.key, source=task.source, status="failed", error=str(exc)
         )
+
+
+# External tools every per-repo sanitize needs. Missing any of these makes
+# every worker fail identically, so check once up front.
+_REQUIRED_TOOLS = ("git", "gitleaks")
+
+
+def check_required_tools() -> list[str]:
+    """Return the names of required external tools not found on PATH."""
+    return [tool for tool in _REQUIRED_TOOLS if shutil.which(tool) is None]
 
 
 def _load_state(state_file: Path) -> dict:
@@ -306,6 +317,19 @@ def run_local_batch(
     tasks = _build_tasks(sources, out)
     state = _load_state(state_file)
     pending = _filter_tasks(tasks, state, retry_failed)
+
+    # Fail fast on a missing required tool, before the (slow) auth pre-flight or
+    # the minutes-long NER model load — otherwise EVERY worker dies the same way
+    # (e.g. no gitleaks) only after all that setup is wasted.
+    if pending:
+        missing = check_required_tools()
+        if missing:
+            logger.error("Required tool(s) not found in PATH: %s", ", ".join(missing))
+            logger.error(
+                "Install them before running — gitleaks: "
+                "https://github.com/gitleaks/gitleaks#installing"
+            )
+            return 1
 
     # Resolve auth for remote URLs up front (SSH attempt, then credential
     # prompt) so a missing credential aborts BEFORE the NER service + workers

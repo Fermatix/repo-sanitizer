@@ -42,6 +42,11 @@ repo-sanitizer sanitize-batch ./repos.txt \
   --workers 8
 ```
 
+**Before a batch run:** install [`gitleaks`](https://github.com/gitleaks/gitleaks#installing)
+(required — the run aborts up front if it is missing), and make sure you have
+plenty of free disk: each repo is a **full clone with history**, so a few
+hundred repos is tens of GB.
+
 Each repo's result lands in `./out/<key>/` (same layout as a single
 `sanitize`). One shared NER service is started for the whole batch; a
 `./out/batch_summary.json` is written and `./out/.sanitize_batch_state.json`
