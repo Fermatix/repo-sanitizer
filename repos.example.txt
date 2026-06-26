@@ -10,6 +10,12 @@
 # Output for each repo lands in <out>/<key>/, where <key> is the URL's last
 # path segment.
 
+# GitLab
 https://gitlab.com/your-group/your-subgroup/repo-one
 https://gitlab.com/your-group/your-subgroup/repo-two
-https://gitlab.com/your-group/your-subgroup/repo-three
+
+# GitHub
+https://github.com/your-org/repo-three
+
+# Bitbucket
+https://bitbucket.org/your-workspace/repo-four
