@@ -42,12 +42,20 @@ repo-sanitizer sanitize-batch ./repos.txt \
   --workers 8
 ```
 
+**Before a batch run:** install [`gitleaks`](https://github.com/gitleaks/gitleaks#installing)
+(required — the run aborts up front if it is missing), and make sure you have
+plenty of free disk: each repo is a **full clone with history**, so a few
+hundred repos is tens of GB.
+
 Each repo's result lands in `./out/<key>/` (same layout as a single
-`sanitize`). One shared NER service is started for the whole batch; a
-`./out/batch_summary.json` is written and `./out/.sanitize_batch_state.json`
-lets a re-run skip finished repos (add `--retry-failed` to redo failures).
-This is local-only — no GitLab discovery or push (for that, see
-`repo-sanitizer batch run`).
+`sanitize`). A `./out/batch_summary.json` is written and
+`./out/.sanitize_batch_state.json` lets a re-run skip finished repos (add
+`--retry-failed` to redo failures). This is local-only — no GitLab discovery
+or push (for that, see `repo-sanitizer batch run`).
+
+NER is **off by default** for batch runs (no GPU/model load) — pass
+`--ner-scope head` (or `all`) to enable name/org detection, which starts one
+shared NER service for the whole batch.
 
 **Authentication.** Before any work starts, a pre-flight checks access to each
 remote URL, in order: (1) existing HTTPS credentials (credential helper or a

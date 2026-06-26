@@ -6,12 +6,14 @@ from pathlib import Path
 
 import pytest
 
+import repo_sanitizer.batch.local as local
 from repo_sanitizer.batch.local import (
     _build_tasks,
     _derive_key,
     _filter_tasks,
     _https_to_ssh,
     _inject_creds,
+    check_required_tools,
     parse_list_file,
     preflight_auth,
     run_local_batch,
@@ -90,6 +92,33 @@ def test_preflight_skips_local_sources(tmp_path: Path):
     # local paths / bundles never need auth -> nothing unresolved, no network
     tasks = _build_tasks([str(tmp_path / "a"), str(tmp_path / "b.bundle")], tmp_path)
     assert preflight_auth(tasks) == []
+
+
+def test_check_required_tools_reports_missing(monkeypatch):
+    monkeypatch.setattr(
+        local.shutil, "which",
+        lambda t: None if t == "gitleaks" else f"/usr/bin/{t}",
+    )
+    assert check_required_tools() == ["gitleaks"]
+
+
+def test_run_local_batch_aborts_when_tool_missing(tmp_path: Path, rules_path: Path, monkeypatch):
+    repo = tmp_path / "repo"
+    _make_repo(repo, "x")
+    list_file = tmp_path / "repos.txt"
+    list_file.write_text(f"{repo}\n", encoding="utf-8")
+    out = tmp_path / "out"
+    # pretend gitleaks is not installed
+    monkeypatch.setattr(
+        local.shutil, "which",
+        lambda t: None if t == "gitleaks" else f"/usr/bin/{t}",
+    )
+    code = run_local_batch(
+        list_file=list_file, rulepack=rules_path, out=out, workers=1, ner_scope="off",
+    )
+    assert code == 1
+    # aborted before any worker ran — no per-repo output produced
+    assert not (out / "repo").exists()
 
 
 def test_filter_tasks_skips_done_retries_failed(tmp_path: Path):

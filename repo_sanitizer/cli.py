@@ -163,12 +163,13 @@ def sanitize_batch(
         help="URL of an already-running NER service. If set, no service is started for the batch.",
     ),
     ner_scope: str = typer.Option(
-        "head", "--ner-scope",
-        help="Where NER runs per repo: head (working tree only — default) | all (also history) | "
-             "off (never load NER — no service started).",
+        "off", "--ner-scope",
+        help="Where NER runs per repo: off (never load NER — default for batch; no "
+             "GPU/model load) | head (working tree only) | all (also history). "
+             "Set head/all to start one shared NER service for the whole batch.",
     ),
     ner_service_port: int = typer.Option(
-        8765, "--ner-service-port", help="Port for the shared NER service started for this batch"
+        8765, "--ner-service-port", help="Port for the shared NER service (only when --ner-scope head/all)"
     ),
     preflight: bool = typer.Option(
         True, "--preflight/--no-preflight",
