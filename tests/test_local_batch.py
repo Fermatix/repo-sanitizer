@@ -10,7 +10,10 @@ from repo_sanitizer.batch.local import (
     _build_tasks,
     _derive_key,
     _filter_tasks,
+    _https_to_ssh,
+    _inject_creds,
     parse_list_file,
+    preflight_auth,
     run_local_batch,
 )
 
@@ -64,6 +67,29 @@ def test_parse_list_file_empty_raises(tmp_path: Path):
     f.write_text("# only comments\n\n", encoding="utf-8")
     with pytest.raises(ValueError):
         parse_list_file(f)
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        ("https://gitlab.com/group/repo", "git@gitlab.com:group/repo.git"),
+        ("https://github.com/org/repo.git", "git@github.com:org/repo.git"),
+        ("https://bitbucket.org/ws/repo", "git@bitbucket.org:ws/repo.git"),
+    ],
+)
+def test_https_to_ssh(url: str, expected: str):
+    assert _https_to_ssh(url) == expected
+
+
+def test_inject_creds_url_encodes_and_keeps_path():
+    out = _inject_creds("https://gitlab.com/g/r.git", "oauth2", "tok/en+1")
+    assert out == "https://oauth2:tok%2Fen%2B1@gitlab.com/g/r.git"
+
+
+def test_preflight_skips_local_sources(tmp_path: Path):
+    # local paths / bundles never need auth -> nothing unresolved, no network
+    tasks = _build_tasks([str(tmp_path / "a"), str(tmp_path / "b.bundle")], tmp_path)
+    assert preflight_auth(tasks) == []
 
 
 def test_filter_tasks_skips_done_retries_failed(tmp_path: Path):

@@ -47,9 +47,17 @@ Each repo's result lands in `./out/<key>/` (same layout as a single
 `./out/batch_summary.json` is written and `./out/.sanitize_batch_state.json`
 lets a re-run skip finished repos (add `--retry-failed` to redo failures).
 This is local-only — no GitLab discovery or push (for that, see
-`repo-sanitizer batch run`). Private Git URLs need credentials configured up
-front (token-in-URL, credential helper, or ssh-agent); batch workers don't
-prompt.
+`repo-sanitizer batch run`).
+
+**Authentication.** Before any work starts, a pre-flight checks access to each
+remote URL, in order: (1) existing HTTPS credentials (credential helper or a
+token in the URL); (2) **SSH** with your keys (the URL is cloned over SSH if
+that works); (3) if a terminal is attached, it prompts once per host for a
+token. If a repo still can't be reached, the run aborts up front (listing
+them) instead of failing workers mid-run — pass `--no-preflight` to skip the
+check. For a fully unattended run, configure credentials beforehand
+(token-in-URL `https://oauth2:<TOKEN>@host/...`, a credential helper, or an
+ssh-agent key).
 
 ---
 
