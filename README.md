@@ -9,15 +9,17 @@ Takes a local path or URL as input. Produces a `git bundle` with fully rewritten
 ## Quick Start
 
 ```bash
-# 1. Install
-pip install repo-sanitizer
+# 1. Get the tool (not published to PyPI — clone it and let uv install it)
+git clone https://github.com/Fermatix/repo-sanitizer
+cd repo-sanitizer
+uv sync                       # creates ./.venv with the project + dependencies
 
 # 2. Set salt (required — never passed via CLI)
 export REPO_SANITIZER_SALT="$(openssl rand -hex 32)"
 
-# 3. Sanitize
-repo-sanitizer sanitize ./my-project \
-  --rulepack ./rules \
+# 3. Sanitize  (run via `uv run` from inside the repo)
+uv run repo-sanitizer sanitize ./my-project \
+  --rulepack ./examples/rules \
   --out ./sanitized-output
 
 # 4. Check result
@@ -26,6 +28,11 @@ cat sanitized-output/artifacts/result.json
 # 5. Share the bundle
 git clone sanitized-output/output/sanitized.bundle ./verification
 ```
+
+> `repo-sanitizer` is **not on PyPI** — `pip install repo-sanitizer` /
+> `uv add repo-sanitizer` will fail. Run it from a clone with `uv run`
+> (which installs the project on first use), or `pip install .` into your
+> own environment.
 
 ### Batch (a list of local repos / bundles / URLs)
 
@@ -92,15 +99,23 @@ All replacements are **deterministic**: same salt + value → same output every 
 
 ### Python package
 
+`repo-sanitizer` is not published to PyPI. Install it from a clone of this
+repository:
+
 ```bash
-# With uv (recommended)
-uv add repo-sanitizer
+git clone https://github.com/Fermatix/repo-sanitizer
+cd repo-sanitizer
 
-# With pip
-pip install repo-sanitizer
+# With uv (recommended) — creates ./.venv, run commands with `uv run`
+uv sync
+uv run repo-sanitizer --help
 
-# With all tree-sitter grammars (165+ languages)
-pip install "repo-sanitizer[grammars]"
+# Or with all tree-sitter grammars (165+ languages)
+uv sync --extra grammars
+
+# With pip, into your own environment (from the repo root)
+pip install .
+# pip install ".[grammars]"   # with all grammars
 ```
 
 ### gitleaks
