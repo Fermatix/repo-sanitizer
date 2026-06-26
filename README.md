@@ -27,6 +27,30 @@ cat sanitized-output/artifacts/result.json
 git clone sanitized-output/output/sanitized.bundle ./verification
 ```
 
+### Batch (a list of local repos / bundles / URLs)
+
+To sanitize many repositories in one run, put one source per line in a text
+file (local paths, `.bundle` files, or Git URLs — `#` comments and blank lines
+ignored; see [`repos.example.txt`](./repos.example.txt)) and use `sanitize-batch`:
+
+```bash
+export REPO_SANITIZER_SALT="$(openssl rand -hex 32)"   # same salt across runs
+
+repo-sanitizer sanitize-batch ./repos.txt \
+  --rulepack ./examples/rules \
+  --out ./out \
+  --workers 8
+```
+
+Each repo's result lands in `./out/<key>/` (same layout as a single
+`sanitize`). One shared NER service is started for the whole batch; a
+`./out/batch_summary.json` is written and `./out/.sanitize_batch_state.json`
+lets a re-run skip finished repos (add `--retry-failed` to redo failures).
+This is local-only — no GitLab discovery or push (for that, see
+`repo-sanitizer batch run`). Private Git URLs need credentials configured up
+front (token-in-URL, credential helper, or ssh-agent); batch workers don't
+prompt.
+
 ---
 
 ## Features

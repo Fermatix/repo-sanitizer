@@ -1,0 +1,21 @@
+# Example input list for `repo-sanitizer sanitize-batch`.
+# One repository URL per line. Blank lines and lines starting with `#` are ignored.
+#
+# Use the repository URL (so all branches are pulled). Private repos need
+# credentials configured up front — either configure a git credential helper
+# / ssh-agent, or put a read_repository token straight in the URL:
+#   https://oauth2:<TOKEN>@gitlab.com/<group>/<repo>.git
+# Batch workers run without a terminal and will NOT prompt for credentials.
+#
+# Output for each repo lands in <out>/<key>/, where <key> is the URL's last
+# path segment.
+
+# GitLab
+https://gitlab.com/your-group/your-subgroup/repo-one
+https://gitlab.com/your-group/your-subgroup/repo-two
+
+# GitHub
+https://github.com/your-org/repo-three
+
+# Bitbucket
+https://bitbucket.org/your-workspace/repo-four
