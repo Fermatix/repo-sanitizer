@@ -80,7 +80,7 @@ def run_package(ctx: RunContext) -> Path:
 
     result_path = ctx.artifacts_dir / "result.json"
     if result_path.exists():
-        doc = json.loads(result_path.read_text())
+        doc = json.loads(result_path.read_text(encoding="utf-8"))
     else:
         doc = {}
     doc["bundle_sha256"] = sha256

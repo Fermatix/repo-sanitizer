@@ -69,7 +69,7 @@ def load_rulepack(path: Path) -> Rulepack:
             f"VERSION file not found in rulepack: {path}. "
             "Every rulepack must contain a VERSION file."
         )
-    version = version_file.read_text().strip()
+    version = version_file.read_text(encoding="utf-8").strip()
 
     policies = _load_yaml(path / "policies.yaml")
     ner_cfg = policies.get("ner", {})
@@ -103,7 +103,7 @@ def load_rulepack(path: Path) -> Rulepack:
 def _load_yaml(path: Path) -> dict:
     if not path.exists():
         return {}
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
     return data if isinstance(data, dict) else {}
 
@@ -167,7 +167,7 @@ def _load_dictionaries(path: Path) -> dict[str, list[str]]:
         name = txt_file.stem
         lines = [
             line.strip()
-            for line in txt_file.read_text().splitlines()
+            for line in txt_file.read_text(encoding="utf-8").splitlines()
             if line.strip() and not line.startswith("#")
         ]
         result[name] = lines

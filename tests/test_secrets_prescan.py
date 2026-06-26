@@ -313,3 +313,18 @@ def test_run_scan_aborts_on_secretsdetector_failure(tmp_path, monkeypatch):
     monkeypatch.setattr(secrets_mod.subprocess, "run", _bad_report_run("{ bad"))
     with pytest.raises(RuntimeError):
         run_scan(ctx, [det], "scan_report_pre.json")
+
+
+def test_read_gitleaks_report_tolerates_non_utf8_bytes(tmp_path):
+    """A gitleaks report whose matched line carries non-UTF-8 bytes (e.g. cp1251
+    source) must not crash the read. Regression: a bare read_text() raised
+    UnicodeDecodeError (utf-8) / 'charmap' (Windows cp1252) on byte 0x98."""
+    from repo_sanitizer.detectors.secrets import _read_gitleaks_report
+
+    report = tmp_path / "report.json"
+    # valid JSON array, but with a raw 0x98 byte inside a string value
+    report.write_bytes(b'[{"Match": "secret\x98value", "RuleID": "x"}]')
+
+    findings = _read_gitleaks_report(report, context="test")
+    assert isinstance(findings, list) and len(findings) == 1
+    assert findings[0]["RuleID"] == "x"

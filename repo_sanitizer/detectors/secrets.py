@@ -189,7 +189,7 @@ class SecretsDetector(Detector):
                     f"(detection would be silently disabled): {result.stderr.strip()[:300]}"
                 )
             try:
-                found = json.loads(report_file.read_text())
+                found = json.loads(report_file.read_text(encoding="utf-8", errors="replace"))
             except json.JSONDecodeError:
                 found = []
             if not found:
@@ -314,7 +314,10 @@ def _read_gitleaks_report(report_file: Path, *, context: str, stderr: str = "") 
             f"gitleaks did not produce a report ({context}); refusing to treat "
             f"as 'no secrets'. stderr: {stderr.strip()[:300]}"
         )
-    text = report_file.read_text()
+    # gitleaks emits UTF-8 JSON; matched lines carry arbitrary repo bytes (e.g.
+    # cp1251 source). Force UTF-8 + replace so a non-UTF-8 byte never crashes the
+    # read (on Windows the default codec is cp1252, where 0x98 is undefined).
+    text = report_file.read_text(encoding="utf-8", errors="replace")
     if not text.strip():
         raise RuntimeError(
             f"gitleaks report was empty ({context}, truncated/killed run); "
