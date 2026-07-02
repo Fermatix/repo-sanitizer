@@ -17,9 +17,33 @@ from repo_sanitizer.detectors.secrets import (
     _read_gitleaks_report,
     build_gitleaks_config,
 )
+from repo_sanitizer.encoding import decode_bytes_detect
 from repo_sanitizer.rulepack import Rulepack
 
 logger = logging.getLogger(__name__)
+
+
+def _git_all_commit_messages(work) -> str | None:
+    """All commit-message text (``git log --all --format=%B``), decoded with
+    encoding detection.
+
+    Commit messages carry arbitrary bytes: Russian repos routinely use cp1251,
+    whose 0xC0-0xFF bytes are not valid standalone UTF-8. Letting subprocess
+    decode the output as text (strict UTF-8) therefore aborts the whole run with
+    e.g. ``'utf-8' codec can't decode byte 0xca ... invalid continuation byte``.
+    Capture bytes instead and run them through ``decode_bytes_detect``
+    (UTF-8 -> cp1251 -> replace), so a legacy-encoded message never crashes the
+    history scan. Returns ``None`` when git itself fails.
+    """
+    r = subprocess.run(
+        ["git", "log", "--all", "--format=%B%x00"],
+        cwd=str(work),
+        capture_output=True,
+    )
+    if r.returncode != 0:
+        return None
+    text, _enc = decode_bytes_detect(r.stdout)
+    return text
 
 
 @dataclass
@@ -325,12 +349,10 @@ def run_history_secret_gate(ctx: RunContext) -> list:
     items = list(_run(["gitleaks", "detect", "--source", work, "--log-opts=--all"], work, "blobs"))
     # (2) commit MESSAGE text — native gitleaks does not scan messages, so dump
     # them and scan as a flat file (mirrors the collection pass).
-    msgs = subprocess.run(
-        ["git", "log", "--all", "--format=%B%x00"], cwd=work, capture_output=True, text=True
-    )
-    if msgs.returncode == 0 and msgs.stdout.strip():
+    msg_text = _git_all_commit_messages(work)
+    if msg_text and msg_text.strip():
         with tempfile.TemporaryDirectory() as md:
-            (Path(md) / "messages.txt").write_text(msgs.stdout, encoding="utf-8")
+            (Path(md) / "messages.txt").write_text(msg_text, encoding="utf-8")
             for it in _run(["gitleaks", "detect", "--no-git", "--source", md], md, "messages"):
                 it["File"] = "<commit-message>"
                 items.append(it)
@@ -365,7 +387,6 @@ def verify_brand_map_applied(ctx: RunContext, brand_map_rows: list, max_report: 
     mandatory Pass-2 codex/agent audit's job, not something a mechanical pass can
     know. Returns a capped list of 'where' strings (empty = map fully applied).
     """
-    from repo_sanitizer.encoding import decode_bytes_detect
     from repo_sanitizer.redaction.history_ops import compile_brand_map
     from repo_sanitizer.steps.history_blob_scan import _collect_all_blobs
 
@@ -424,10 +445,8 @@ def verify_brand_map_applied(ctx: RunContext, brand_map_rows: list, max_report: 
     if len(survivors) >= max_report:
         return survivors[:max_report]
 
-    log = subprocess.run(
-        ["git", "log", "--all", "--format=%B%x00"], cwd=str(work), capture_output=True, text=True
-    )
-    if log.returncode == 0 and log.stdout and _hits(log.stdout):
+    msg_text = _git_all_commit_messages(work)
+    if msg_text and _hits(msg_text):
         survivors.append("commit-message")
     return survivors
 
