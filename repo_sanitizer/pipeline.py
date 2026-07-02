@@ -116,8 +116,19 @@ def run_sanitize(
     ner_device: Optional[str] = None,
     ner_service_url: Optional[str] = None,
     ner_scope: str = "head",
+    run_gate: bool = True,
 ) -> int:
-    """Run the full sanitize pipeline. Returns exit code (0=pass, 1=fail)."""
+    """Run the full sanitize pipeline. Returns exit code.
+
+    ``run_gate``: when False, the leak/verification gates (history post-scans,
+    fail-closed secret gate, gate check) are skipped and the run succeeds
+    (exit 0) as long as the sanitized bundle is produced. When True, the gates
+    run and decide the exit code (0=all blocking gates pass, 1=at least one red).
+
+    The library default is True (backward-compatible); the user-facing surfaces
+    default to OFF and pass this explicitly: `sanitize`/`sanitize-batch` default
+    to `--no-gate`, and the batch orchestrator to `processing.run_gate: false`.
+    """
     if ner_service_url:
         _check_ner_service(ner_service_url)
 
@@ -229,33 +240,40 @@ def run_sanitize(
     run_ref_reconcile(ctx)
     ctx.timings["steps"]["ref_reconcile"] = round(time.perf_counter() - t0, 3)
 
-    # Step 8 + 8b: History post-scans (verification — silent)
-    t0 = time.perf_counter()
-    ctx.history_post_findings = run_history_scan(
-        ctx, metadata_detectors, "history_scan_post.json"
-    )
-    ctx.timings["steps"]["history_scan_post"] = round(time.perf_counter() - t0, 3)
-    t0 = time.perf_counter()
-    ctx.history_blob_post_findings = run_history_blob_scan(
-        ctx, history_detectors, "history_blob_scan_post.json", ner_detector=history_ner
-    )
-    ctx.timings["steps"]["history_blob_scan_post"] = round(time.perf_counter() - t0, 3)
+    # Steps 8-9 are verification only: they scan the rewritten repo and evaluate
+    # the gates, but never change the sanitized output. Run them only under
+    # --gate; otherwise the run succeeds as soon as the bundle is packaged.
+    if run_gate:
+        # Step 8 + 8b: History post-scans (verification — silent)
+        t0 = time.perf_counter()
+        ctx.history_post_findings = run_history_scan(
+            ctx, metadata_detectors, "history_scan_post.json"
+        )
+        ctx.timings["steps"]["history_scan_post"] = round(time.perf_counter() - t0, 3)
+        t0 = time.perf_counter()
+        ctx.history_blob_post_findings = run_history_blob_scan(
+            ctx, history_detectors, "history_blob_scan_post.json", ner_detector=history_ner
+        )
+        ctx.timings["steps"]["history_blob_scan_post"] = round(time.perf_counter() - t0, 3)
 
-    # Step 8c: FAIL-CLOSED full-history secret gate over the REWRITTEN repo.
-    # Backstops every way secret-literal collection could miss a value
-    # (message-only, <5 chars, repo-config-allowlisted, non-utf8, gitleaks FN on
-    # the pre-rewrite shape). Any survivor is a SECRET finding → SECRETS gate red.
-    t0 = time.perf_counter()
-    secret_survivors = run_history_secret_gate(ctx)
-    if secret_survivors:
-        logger.warning("Post-rewrite history secret gate: %d secret(s) survive in history", len(secret_survivors))
-    ctx.history_blob_post_findings = ctx.history_blob_post_findings + secret_survivors
-    ctx.timings["steps"]["history_secret_gate"] = round(time.perf_counter() - t0, 3)
+        # Step 8c: FAIL-CLOSED full-history secret gate over the REWRITTEN repo.
+        # Backstops every way secret-literal collection could miss a value
+        # (message-only, <5 chars, repo-config-allowlisted, non-utf8, gitleaks FN on
+        # the pre-rewrite shape). Any survivor is a SECRET finding → SECRETS gate red.
+        t0 = time.perf_counter()
+        secret_survivors = run_history_secret_gate(ctx)
+        if secret_survivors:
+            logger.warning("Post-rewrite history secret gate: %d secret(s) survive in history", len(secret_survivors))
+        ctx.history_blob_post_findings = ctx.history_blob_post_findings + secret_survivors
+        ctx.timings["steps"]["history_secret_gate"] = round(time.perf_counter() - t0, 3)
 
-    # Step 9: Gate check
-    t0 = time.perf_counter()
-    result = run_gate_check(ctx)
-    ctx.timings["steps"]["gate_check"] = round(time.perf_counter() - t0, 3)
+        # Step 9: Gate check
+        t0 = time.perf_counter()
+        result = run_gate_check(ctx)
+        ctx.timings["steps"]["gate_check"] = round(time.perf_counter() - t0, 3)
+        gate_exit = result.get("exit_code", 1)
+    else:
+        gate_exit = 0
 
     # Step 10: Package
     t0 = time.perf_counter()
@@ -270,9 +288,16 @@ def run_sanitize(
         + len(ctx.history_post_findings)
         + len(ctx.history_blob_post_findings)
     )
-    exit_code = result.get("exit_code", 1)
+    exit_code = gate_exit
     total_s = ctx.timings["total_s"]
-    if exit_code == 0:
+    if not run_gate:
+        logger.info(
+            "Done (gates skipped): %s → bundle packaged | %d redactions | %.1fs",
+            _finding_summary(ctx.pre_findings),
+            len(ctx.redaction_manifest),
+            total_s,
+        )
+    elif exit_code == 0:
         logger.info(
             "Done: %s → %d remaining | %d redactions | %.1fs",
             _finding_summary(ctx.pre_findings),
@@ -369,6 +394,82 @@ def run_scan_only(
     logger.info("Scan complete: %s (%.1fs)", _finding_summary(all_findings), ctx.timings["total_s"])
 
     return 0 if not all_findings else 1
+
+
+def run_gate_only(
+    source: str,
+    out_dir: Path,
+    rulepack_path: Path,
+    salt_env: str = "REPO_SANITIZER_SALT",
+    rev: str = "HEAD",
+    max_file_mb: int = 20,
+    history_since: Optional[str] = None,
+    history_until: Optional[str] = None,
+    ner_device: Optional[str] = None,
+    ner_service_url: Optional[str] = None,
+    ner_scope: str = "head",
+) -> int:
+    """Evaluate the leak/verification gates against an ALREADY-sanitized source
+    (a ``sanitized.bundle`` or its work dir) — no redaction, no history rewrite.
+
+    Scans the working tree and full history, runs the gate battery, writes
+    ``artifacts/result.json``, and returns the gate exit code (0 = all blocking
+    gates pass, 1 = at least one red). Use it to re-check a delivered bundle
+    before continuing work on it.
+    """
+    if ner_service_url:
+        _check_ner_service(ner_service_url)
+
+    ctx, rulepack = _build_context(
+        source, out_dir, rulepack_path, salt_env, rev, max_file_mb,
+        history_since, history_until, ner_device, ner_service_url, ner_scope,
+    )
+
+    history_detectors = build_history_detectors(rulepack)
+    ctx.timings["steps"] = {}
+    t_total = time.perf_counter()
+
+    fetch(ctx, source)
+    run_inventory(ctx)
+
+    # Self-consistent config-parse snapshot: there is no pre-redaction tree to
+    # diff, so PARSEABLE_CONFIGS (a valid→invalid regression gate) never
+    # false-fails on an already-sanitized input.
+    from repo_sanitizer.buildsafe import parse_status
+    ctx.config_parse_pre = parse_status(ctx.work_dir)
+
+    detectors = build_detectors(
+        rulepack, ner_service_url=ctx.ner_service_url, ner_scope=ctx.ner_scope
+    )
+    ner_detector = next((d for d in detectors if isinstance(d, NERDetector)), None)
+    metadata_detectors = detectors if ctx.ner_scope == "all" else history_detectors
+    history_ner = ner_detector if ctx.ner_scope == "all" else None
+
+    # Populate the POST findings the gate reads (working tree + full history).
+    logger.info("Scanning working tree...")
+    ctx.post_findings = run_scan(ctx, detectors, "scan_report_post.json")
+    logger.info("Scanning history (commit metadata)...")
+    ctx.history_post_findings = run_history_scan(ctx, metadata_detectors, "history_scan_post.json")
+    logger.info("Scanning history (file blobs)...")
+    ctx.history_blob_post_findings = run_history_blob_scan(
+        ctx, history_detectors, "history_blob_scan_post.json", ner_detector=history_ner
+    )
+    secret_survivors = run_history_secret_gate(ctx)
+    if secret_survivors:
+        logger.warning("History secret gate: %d secret(s) present in history", len(secret_survivors))
+    ctx.history_blob_post_findings = ctx.history_blob_post_findings + secret_survivors
+
+    result = run_gate_check(ctx)
+    ctx.timings["total_s"] = round(time.perf_counter() - t_total, 3)
+    _patch_result_json(ctx)
+
+    exit_code = result.get("exit_code", 1)
+    if exit_code == 0:
+        logger.info("Gates passed (%.1fs)", ctx.timings["total_s"])
+    else:
+        red = sorted(n for n, g in result.get("gates", {}).items() if not g.get("passed", True))
+        logger.warning("Gates failed: %s (%.1fs)", ", ".join(red), ctx.timings["total_s"])
+    return exit_code
 
 
 def run_apply_map(

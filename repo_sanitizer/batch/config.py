@@ -34,6 +34,9 @@ class ProcessingConfig:
     ner_batch_size: int = 32
     work_base_dir: Path = field(default_factory=lambda: Path("/tmp/repo-san-work"))
     keep_work_dirs: bool = False
+    # Run the leak/verification gates per repo and block delivery on real-leak
+    # gates. Off by default: a repo is delivered as soon as its bundle is packaged.
+    run_gate: bool = False
 
 
 @dataclass
@@ -79,6 +82,7 @@ def load_batch_config(path: Path) -> BatchConfig:
         ner_batch_size=int(proc_raw.get("ner_batch_size", 32)),
         work_base_dir=Path(proc_raw.get("work_base_dir", "/tmp/repo-san-work")),
         keep_work_dirs=bool(proc_raw.get("keep_work_dirs", False)),
+        run_gate=bool(proc_raw.get("run_gate", False)),
     )
 
     out_raw = raw.get("output", {})

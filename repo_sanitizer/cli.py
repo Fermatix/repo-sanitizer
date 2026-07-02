@@ -110,6 +110,12 @@ def sanitize(
              "names found in history are reported as a gate worklist, not "
              "auto-rewritten, like brands) | off (never load NER — fastest)."
     ),
+    gate: bool = typer.Option(
+        False, "--gate/--no-gate",
+        help="Run the leak/verification gates and let them decide the exit code "
+             "(--gate), or skip them and succeed as soon as the sanitized bundle "
+             "is packaged (--no-gate, default).",
+    ),
 ) -> None:
     """Sanitize a Git repository: scan, redact, rewrite history, and package."""
     _setup_logging()
@@ -128,6 +134,7 @@ def sanitize(
             ner_device=ner_device,
             ner_service_url=ner_service_url,
             ner_scope=ner_scope,
+            run_gate=gate,
         )
     except Exception as e:
         logging.getLogger(__name__).error("Fatal error: %s", e)
@@ -177,6 +184,12 @@ def sanitize_batch(
              "credentials, then SSH keys, then prompt for a token. Aborts if any repo "
              "is unreachable, instead of failing workers mid-run.",
     ),
+    gate: bool = typer.Option(
+        False, "--gate/--no-gate",
+        help="Run the leak/verification gates per repo and let them decide each "
+             "exit code (--gate), or skip them and count a repo as done as soon "
+             "as its sanitized bundle is packaged (--no-gate, default).",
+    ),
 ) -> None:
     """Sanitize every repo listed in a file into <out>/<key>/ — local sources, local output.
 
@@ -203,6 +216,7 @@ def sanitize_batch(
             ner_scope=ner_scope,
             ner_service_port=ner_service_port,
             preflight=preflight,
+            run_gate=gate,
         )
     except Exception as e:
         logging.getLogger(__name__).error("Batch failed: %s", _summarize_batch_error(e))
@@ -244,6 +258,64 @@ def scan(
 
     try:
         exit_code = run_scan_only(
+            source=source,
+            out_dir=out,
+            rulepack_path=rulepack,
+            salt_env=salt_env,
+            rev=rev,
+            max_file_mb=max_file_mb,
+            history_since=history_since,
+            history_until=history_until,
+            ner_device=ner_device,
+            ner_service_url=ner_service_url,
+            ner_scope=ner_scope,
+        )
+    except Exception as e:
+        logging.getLogger(__name__).error("Fatal error: %s", e)
+        raise typer.Exit(code=1)
+    raise typer.Exit(code=exit_code)
+
+
+@app.command()
+def gate(
+    source: str = typer.Argument(
+        ..., help="Already-sanitized source: a sanitized.bundle or its work dir"
+    ),
+    rulepack: Path = typer.Option(..., "--rulepack", help="Path to rulepack directory"),
+    out: Path = typer.Option(..., "--out", help="Output directory"),
+    rev: str = typer.Option("HEAD", "--rev", help="Git revision to checkout"),
+    salt_env: str = typer.Option(
+        "REPO_SANITIZER_SALT", "--salt-env", help="Env variable name containing the salt"
+    ),
+    max_file_mb: int = typer.Option(20, "--max-file-mb", help="Max file size in MB"),
+    history_since: Optional[str] = typer.Option(None, "--history-since", help="Lower bound for history"),
+    history_until: Optional[str] = typer.Option(None, "--history-until", help="Upper bound for history"),
+    ner_device: Optional[str] = typer.Option(
+        None, "--ner-device",
+        help="Device for NER model: cpu | cuda | cuda:0 | cuda:1 | auto (overrides policies.yaml)"
+    ),
+    ner_service_url: Optional[str] = typer.Option(
+        None, "--ner-service-url",
+        help="URL of a running NER service (e.g. http://localhost:8765)."
+    ),
+    ner_scope: str = typer.Option(
+        "head", "--ner-scope",
+        help="Where NER runs: head (working tree only — default, fast) | "
+             "all (also commit metadata + every history blob — slow) | "
+             "off (never load NER at all — fastest)."
+    ),
+) -> None:
+    """Run the leak/verification gates on an ALREADY-sanitized bundle (read-only).
+
+    No redaction or history rewrite — scan the delivered bundle, evaluate the
+    gate battery, write artifacts/result.json, and exit non-zero if any blocking
+    gate is red. Use it to re-check a handed-off bundle before continuing work on it.
+    """
+    _setup_logging()
+    from repo_sanitizer.pipeline import run_gate_only
+
+    try:
+        exit_code = run_gate_only(
             source=source,
             out_dir=out,
             rulepack_path=rulepack,
@@ -497,6 +569,13 @@ def batch_run(
     retry_failed: bool = typer.Option(
         False, "--retry-failed", help="Re-process repos that failed in a previous run"
     ),
+    gate: Optional[bool] = typer.Option(
+        None, "--gate/--no-gate",
+        help="Run the leak/verification gates and block delivery on real-leak "
+             "gates (--gate), or skip them and deliver as soon as the bundle is "
+             "packaged (--no-gate). Overrides processing.run_gate in the config; "
+             "default is the config value (off).",
+    ),
 ) -> None:
     """Sanitize all matching GitLab repositories and push bundles to the delivery group."""
     _setup_logging()
@@ -506,6 +585,8 @@ def batch_run(
         _exit_for_missing_dependency(e, "batch mode")
 
     cfg = _load_batch_cfg(config)
+    if gate is not None:
+        cfg.processing.run_gate = gate
     try:
         exit_code = run_batch(
             config=cfg,
