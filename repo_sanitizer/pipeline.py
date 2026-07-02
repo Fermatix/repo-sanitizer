@@ -432,6 +432,12 @@ def run_gate_only(
     fetch(ctx, source)
     run_inventory(ctx)
 
+    # Identity branch map: fetch records the intake branch tips, but the rename
+    # map is only built by ref-reconcile, which gate-only does not run. Without
+    # it BRANCHES_PRESERVED would report every branch of the bundle as lost.
+    # Each intake branch maps to itself; the on-disk heads check still applies.
+    ctx.branch_rename_map = {name: name for name in (ctx.intake_branch_tips or {})}
+
     # Self-consistent config-parse snapshot: there is no pre-redaction tree to
     # diff, so PARSEABLE_CONFIGS (a valid→invalid regression gate) never
     # false-fails on an already-sanitized input.

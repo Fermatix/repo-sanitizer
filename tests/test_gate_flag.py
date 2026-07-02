@@ -102,4 +102,9 @@ def test_gate_command_evaluates_sanitized_bundle(tmp_path, sample_repo_git):
     assert "gates" in result and "SECRETS" in result["gates"]
     # The deterministic leak gate must be green on an already-sanitized bundle.
     assert result["gates"]["SECRETS"]["passed"]
+    # Structural gates must not false-fail in standalone mode: the bundle's
+    # branches ARE its intake set (no ref-reconcile ran to build a rename map).
+    assert result["gates"]["BRANCHES_PRESERVED"]["passed"], (
+        result["gates"]["BRANCHES_PRESERVED"]
+    )
     assert isinstance(code, int)
