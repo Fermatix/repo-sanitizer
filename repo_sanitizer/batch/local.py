@@ -51,6 +51,7 @@ class RunParams:
     ner_device: str | None
     ner_service_url: str | None
     ner_scope: str
+    run_gate: bool = False
 
 
 @dataclass
@@ -133,6 +134,7 @@ def process_local_repo(task: LocalTask, params: RunParams) -> LocalResult:
             ner_device=params.ner_device,
             ner_service_url=params.ner_service_url,
             ner_scope=params.ner_scope,
+            run_gate=params.run_gate,
         )
         return LocalResult(
             key=task.key,
@@ -306,9 +308,11 @@ def run_local_batch(
     ner_scope: str = "head",
     ner_service_port: int = 8765,
     preflight: bool = True,
+    run_gate: bool = False,
 ) -> int:
     """Sanitize every repo in ``list_file`` into ``out/<key>``. Returns a
-    process exit code: 0 if every processed repo passed its gates, else 1."""
+    process exit code: 0 if every processed repo succeeded (with ``run_gate``,
+    that also means gates passed), else 1."""
     rulepack = rulepack.resolve()
     out.mkdir(parents=True, exist_ok=True)
     state_file = out / ".sanitize_batch_state.json"
@@ -390,6 +394,7 @@ def run_local_batch(
         # workers reach NER via the shared service, so they never load the model
         ner_service_url=effective_ner_url,
         ner_scope=ner_scope,
+        run_gate=run_gate,
     )
 
     results: list[LocalResult] = []

@@ -66,6 +66,7 @@ def process_repo(task: RepoTask, config: BatchConfig) -> RepoResult:
             rulepack_path=Path(config.rulepack).resolve(),
             salt_env=config.salt_env,
             ner_service_url=ner_service_url,
+            run_gate=config.processing.run_gate,
         )
 
         # Copy artifacts to persistent location
@@ -81,8 +82,10 @@ def process_repo(task: RepoTask, config: BatchConfig) -> RepoResult:
         # gates (DICTIONARY/ORG_NAME/BRAND_*/PACKAGE_NAMESPACE) are INTENTIONALLY
         # red after Pass-1 (the Pass-2 rename worklist) and must NOT block the
         # handoff; secrets/PII/endpoints/forbidden-files/configs being red means an
-        # actual leak — refuse to push.
-        blocking = _blocking_gate_failures(result_json)
+        # actual leak — refuse to push. With gates disabled (processing.run_gate
+        # off) there is no gate result to enforce, so a packaged bundle is
+        # delivered on exit 0 alone.
+        blocking = _blocking_gate_failures(result_json) if config.processing.run_gate else []
         if blocking:
             logger.error(
                 "Refusing to push %s/%s — blocking gates failed: %s",

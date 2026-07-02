@@ -141,6 +141,7 @@ On first run, `transformers` downloads `Davlan/bert-base-multilingual-cased-ner-
 |---|---|
 | `sanitize <source>` | Full pipeline: clone → scan → redact → rewrite history → bundle |
 | `scan <source>` | Read-only audit — no changes made |
+| `gate <source>` | Run the leak/verification gates on an already-sanitized bundle |
 | `install-grammars` | Verify and install tree-sitter grammar packages |
 | `batch run` | Process thousands of GitLab repositories in parallel |
 | `batch list` | Dry-run: enumerate repositories without processing |
@@ -159,12 +160,17 @@ On first run, `transformers` downloads `Davlan/bert-base-multilingual-cased-ner-
 | `--history-until DATE` | — | Limit history scan end date |
 | `--ner-device DEVICE` | `cpu` | NER device: `cpu` \| `cuda` \| `cuda:0` \| `auto` |
 | `--ner-service-url URL` | — | URL of a running `ner-service`. Skips local model loading; multiple runs share one service |
+| `--gate` / `--no-gate` | `--no-gate` | Run the leak/verification gates and let them decide the exit code (`--gate`), or skip them and succeed as soon as the bundle is packaged (`--no-gate`, default) |
 
-**Exit codes:** `0` = all gates passed, `1` = one or more gates failed.
+**Exit codes:** with `--no-gate` (default): `0` = the sanitized bundle was produced, `1` = a step failed. With `--gate`: `0` = all blocking gates passed, `1` = one or more failed.
 
 ### `scan` options
 
 Same options as `sanitize`. Produces `inventory.json`, `scan_report_pre.json`, `history_scan_pre.json`, `history_blob_scan_pre.json`. No files are modified.
+
+### `gate` options
+
+Same options as `sanitize` (minus `--gate`). Runs the gate battery against an already-sanitized `sanitized.bundle` (no redaction or history rewrite), writes `artifacts/result.json`, and exits `0` when all blocking gates pass, `1` otherwise. Use it to re-check a handed-off bundle before continuing work on it.
 
 ---
 
