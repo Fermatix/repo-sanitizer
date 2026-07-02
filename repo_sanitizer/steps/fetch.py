@@ -49,14 +49,49 @@ def _run_git(
         prefix = ["-c", "credential.helper=cache --timeout=900"]
     else:
         env.setdefault("GIT_TERMINAL_PROMPT", "0")
-    return subprocess.run(
+    result = subprocess.run(
         ["git", *prefix, *args],
         cwd=str(cwd) if cwd is not None else None,
-        check=True,
+        check=False,
         capture_output=not interactive,
         text=True,
         env=env,
     )
+    if result.returncode != 0:
+        # check=True raised a bare "Command '[...]' returned non-zero exit
+        # status 128" and dropped git's stderr on the floor, so failures like a
+        # corrupt bundle or an unreachable remote were undiagnosable. Surface
+        # git's own message (captured output only exists in the non-interactive
+        # branch; in interactive mode it already went straight to the terminal).
+        detail = ((result.stderr or "") + (result.stdout or "")).strip() if not interactive else ""
+        raise RuntimeError(
+            f"git {' '.join(args)} failed (exit {result.returncode})"
+            + (f":\n{detail}" if detail else "")
+        )
+    return result
+
+
+def _verify_git_bundle(bundle_path: Path) -> None:
+    """Fail early with git's own explanation if a ``*.bundle`` source is corrupt,
+    truncated, or missing prerequisite commits — instead of the cryptic
+    ``git clone ... returned non-zero exit status 128`` that follows.
+
+    ``git bundle verify`` runs standalone (no repo needed) and reports exactly
+    what is wrong: "does not look like a v2/v3 bundle file", "Repository lacks
+    these prerequisite commits", etc.
+    """
+    result = subprocess.run(
+        ["git", "bundle", "verify", str(bundle_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        detail = ((result.stderr or "") + (result.stdout or "")).strip()
+        raise RuntimeError(
+            f"git bundle '{bundle_path.name}' is not usable "
+            f"(git bundle verify exit {result.returncode}):\n{detail}"
+        )
 
 
 def fetch(ctx: RunContext, source: str) -> None:
@@ -89,6 +124,7 @@ def fetch(ctx: RunContext, source: str) -> None:
     elif source_path.is_file():
         # A git bundle (e.g. a Pass-1 sanitized.bundle) — clone it like a repo.
         logger.debug("Cloning git bundle %s → %s", source, dest)
+        _verify_git_bundle(source_path)
         _run_git(["clone", "--no-single-branch", str(source_path), str(dest)])
         _fetch_all_refs(dest)
         materialize_local_branches(dest)
