@@ -325,12 +325,17 @@ def run_history_secret_gate(ctx: RunContext) -> list:
     items = list(_run(["gitleaks", "detect", "--source", work, "--log-opts=--all"], work, "blobs"))
     # (2) commit MESSAGE text — native gitleaks does not scan messages, so dump
     # them and scan as a flat file (mirrors the collection pass).
+    from repo_sanitizer.encoding import decode_bytes_detect
+
+    # BYTES, not text=True: commit messages may be cp1251/legacy-encoded; a strict
+    # utf-8 decode raises and aborts the whole sanitize (the post-rewrite secret gate).
     msgs = subprocess.run(
-        ["git", "log", "--all", "--format=%B%x00"], cwd=work, capture_output=True, text=True
+        ["git", "log", "--all", "--format=%B%x00"], cwd=work, capture_output=True
     )
-    if msgs.returncode == 0 and msgs.stdout.strip():
+    msgs_text = decode_bytes_detect(msgs.stdout)[0] if msgs.returncode == 0 else ""
+    if msgs_text.strip():
         with tempfile.TemporaryDirectory() as md:
-            (Path(md) / "messages.txt").write_text(msgs.stdout, encoding="utf-8")
+            (Path(md) / "messages.txt").write_text(msgs_text, encoding="utf-8")
             for it in _run(["gitleaks", "detect", "--no-git", "--source", md], md, "messages"):
                 it["File"] = "<commit-message>"
                 items.append(it)
@@ -424,10 +429,13 @@ def verify_brand_map_applied(ctx: RunContext, brand_map_rows: list, max_report: 
     if len(survivors) >= max_report:
         return survivors[:max_report]
 
+    from repo_sanitizer.encoding import decode_bytes_detect
+
     log = subprocess.run(
-        ["git", "log", "--all", "--format=%B%x00"], cwd=str(work), capture_output=True, text=True
+        ["git", "log", "--all", "--format=%B%x00"], cwd=str(work), capture_output=True
     )
-    if log.returncode == 0 and log.stdout and _hits(log.stdout):
+    log_text = decode_bytes_detect(log.stdout)[0] if log.returncode == 0 else ""
+    if log_text and _hits(log_text):
         survivors.append("commit-message")
     return survivors
 
