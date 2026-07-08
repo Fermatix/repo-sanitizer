@@ -32,17 +32,23 @@ def run_history_scan(
     if ctx.history_until:
         cmd.append(f"--until={ctx.history_until}")
 
+    # Capture BYTES, not text=True: git log emits commit metadata verbatim in
+    # whatever encoding the authors used (cp1251 Cyrillic is common here). A strict
+    # utf-8 decode (text=True) raises UnicodeDecodeError on the first non-utf-8 byte
+    # and aborts the whole sanitize. decode_bytes_detect falls back utf-8 -> cp1251
+    # -> utf-8/replace so a legacy-encoded message is read, not crashed on.
+    from repo_sanitizer.encoding import decode_bytes_detect
+
     result = subprocess.run(
         cmd,
         cwd=str(work_dir),
         capture_output=True,
-        text=True,
     )
     if result.returncode != 0:
-        logger.warning("git log failed: %s", result.stderr)
+        logger.warning("git log failed: %s", decode_bytes_detect(result.stderr)[0])
         return all_findings
 
-    commits = _parse_log(result.stdout)
+    commits = _parse_log(decode_bytes_detect(result.stdout)[0])
 
     for commit in commits:
         sha = commit["sha"]
