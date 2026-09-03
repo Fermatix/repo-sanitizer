@@ -50,6 +50,9 @@ dev = [
 grammars = [
     "tree-sitter-language-pack",
 ]
+images = [
+    "pillow>=10",
+]
 
 [tool.setuptools.packages.find]
 include = ["repo_sanitizer*"]
