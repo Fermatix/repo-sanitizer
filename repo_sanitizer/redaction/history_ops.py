@@ -372,8 +372,15 @@ class Scrubber:
         keep: Optional[list] = None,
         scrub_public_ips: bool = False,
         scrub_urls: bool = False,
+        blank_raster_images: bool = False,
     ) -> None:
         self.salt = salt
+        # rulepack policy `blank_raster_images`: every png/jpeg/gif/webp/bmp/ico/tiff blob (by magic bytes) becomes a
+        # white image of the same format and size — no logo, photo, map screenshot or EXIF/XMP ships; SVG is text
+        self._blanker = None
+        if blank_raster_images:
+            from repo_sanitizer.redaction.blank_images import Blanker
+            self._blanker = Blanker()
         self.rewrite_authors = rewrite_authors
 
         # Allowlisted IP/domain literals (lowercased), exempt from the IP/URL pass.
@@ -686,6 +693,11 @@ class Scrubber:
         (a real binary / image / compiled artifact)."""
         try:
             data = blob.data
+            if self._blanker is not None:
+                white = self._blanker.blank(data)
+                if white is not None:
+                    blob.data = white
+                    return
             if b"\x00" in data[:8192] and not _decodes_as_text(data):
                 return
             out = self._scrub_nonbrand(data)
@@ -693,6 +705,14 @@ class Scrubber:
             blob.data = out
         except Exception:
             pass
+
+    def blank_report(self) -> str:
+        """One line for the rewrite log: how many raster image blobs became white placeholders."""
+        if self._blanker is None:
+            return "blank_raster_images: off"
+        r = self._blanker.report()
+        return (f"blank_raster_images: {r['blobs']} raster image blob(s) replaced by white placeholders {r['by_format']} "
+                f"(unsized {r['unsized']}, png-fallback {r['fallback_png']}, {r['bytes_in'] // 1024} KB -> {r['bytes_out'] // 1024} KB); svg untouched")
 
     # ── path handling ──────────────────────────────────────────────────────────
 

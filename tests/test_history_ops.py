@@ -512,3 +512,34 @@ def test_digit_literals_are_digit_boundaried(pii_defs):
     assert b"TS = 1770701001\n" in blob.data                     # a digit prefix protects the tail too
     msg = scr.message(b"fix inn 7707083893 in order 77070838930000")
     assert b"7707083893 in" not in msg and b"77070838930000" in msg
+
+
+def test_blank_raster_images_replaces_raster_blobs_but_not_svg_and_is_off_by_default():
+    """Rulepack policy `blank_raster_images` (anonymization pipeline, 2026-09-03): every raster image blob of the
+    history becomes a white image of the same format and size; SVG/text blobs go through the normal scrub; the
+    policy is off unless the rulepack turns it on."""
+    import io
+    import pytest
+    Image = pytest.importorskip("PIL.Image")
+
+    def img(fmt: str) -> bytes:
+        buf = io.BytesIO()
+        Image.new("RGB", (5, 3), (200, 30, 30)).save(buf, format=fmt)
+        return buf.getvalue()
+
+    class Blob:
+        def __init__(self, data: bytes) -> None:
+            self.data = data
+
+    scr = Scrubber(SALT, blank_raster_images=True)
+    png = Blob(img("PNG")); scr.blob(png)
+    with Image.open(io.BytesIO(png.data)) as im:
+        assert im.format == "PNG" and im.size == (5, 3) and im.convert("L").getextrema() == (255, 255)
+    jpg = Blob(img("JPEG")); scr.blob(jpg)
+    assert jpg.data[:3] == b"\xff\xd8\xff" and jpg.data != img("JPEG"), "a JPEG stays a JPEG, but white"
+    svg = Blob(b"<svg xmlns='http://www.w3.org/2000/svg'><text>plain</text></svg>"); scr.blob(svg)
+    assert svg.data.startswith(b"<svg"), "SVG is text: untouched by the blanker"
+    assert "2 raster image blob(s)" in scr.blank_report()
+    off = Scrubber(SALT)
+    keep = Blob(img("PNG")); off.blob(keep)
+    assert keep.data == img("PNG") and off.blank_report() == "blank_raster_images: off"

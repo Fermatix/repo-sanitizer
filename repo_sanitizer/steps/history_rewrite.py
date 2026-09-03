@@ -66,6 +66,7 @@ class FilterPlan:
     keep: list = field(default_factory=list)                   # allowlisted IP/domain literals
     scrub_public_ips: bool = False                             # Pass-1 only (public-IP pass)
     scrub_urls: bool = False                                   # Pass-1 only (non-allowlisted URL-host pass)
+    blank_raster_images: bool = False                          # rulepack policy: raster image blobs → white placeholders
 
 
 def run_history_rewrite(ctx: RunContext) -> None:
@@ -89,7 +90,14 @@ def run_history_rewrite(ctx: RunContext) -> None:
         keep=sorted(keep),
         scrub_public_ips=True,
         scrub_urls=True,
+        blank_raster_images=rulepack.blank_raster_images,
     )
+    if plan.blank_raster_images:
+        try:
+            import PIL  # noqa: F401
+        except ImportError:
+            raise RuntimeError("rulepack policy blank_raster_images is on but Pillow is missing: install the `images` extra "
+                               "(uv sync --extra images) or set blank_raster_images: false") from None
     _run_filter_repo(ctx, plan, "_filter_repo_script.py", "history_rewrite_log.txt")
     logger.info("History rewrite complete")
 
@@ -565,6 +573,7 @@ def _build_filter_script(plan: FilterPlan) -> str:
     keep_repr = repr(list(plan.keep))
     scrub_public_ips_repr = repr(bool(plan.scrub_public_ips))
     scrub_urls_repr = repr(bool(plan.scrub_urls))
+    blank_images_repr = repr(bool(plan.blank_raster_images))
 
     return textwrap.dedent(
         f'''\
@@ -607,6 +616,7 @@ def _build_filter_script(plan: FilterPlan) -> str:
             keep={keep_repr},
             scrub_public_ips={scrub_public_ips_repr},
             scrub_urls={scrub_urls_repr},
+            blank_raster_images={blank_images_repr},
         )
 
         args = fr.FilteringOptions.default_options()
@@ -623,6 +633,7 @@ def _build_filter_script(plan: FilterPlan) -> str:
             filename_callback=scrubber.filename,
         )
         repo_filter.run()
+        print(scrubber.blank_report())
         print("Filter-repo completed successfully")
         '''
     )

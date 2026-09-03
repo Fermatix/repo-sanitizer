@@ -1,0 +1,98 @@
+"""White placeholders for raster images (rulepack policy `blank_raster_images: true`, off by default) — every
+png/jpeg/gif/webp/bmp/ico/tiff blob in the WHOLE history is replaced
+by a blank white image of the SAME format and pixel size under the same path (user decision 2026-09-03: the client
+does not need the pictures; the build must not break; nothing of the original picture may ship — logos, photos,
+map screenshots, EXIF/XMP metadata with author names and paths all go with it). SVG is text and is NOT touched
+(the sweep scrubs its text). Detection is by magic bytes, not by extension, so `.JPG`, mis-named files and
+data blobs without an extension are covered; anything Pillow cannot size becomes a 1×1 white image of the
+detected format. Rendered bytes are cached per (format, size): a gallery of 800 same-size photos costs one encode."""
+from __future__ import annotations
+
+import io
+from collections import Counter
+
+MAGIC = (
+    (b"\x89PNG\r\n\x1a\n", "PNG"),
+    (b"\xff\xd8\xff", "JPEG"),
+    (b"GIF87a", "GIF"),
+    (b"GIF89a", "GIF"),
+    (b"BM", "BMP"),
+    (b"\x00\x00\x01\x00", "ICO"),
+    (b"II*\x00", "TIFF"),
+    (b"MM\x00*", "TIFF"),
+)
+MAX_PIXELS = 100_000_000      # above this the placeholder keeps the aspect ratio at 8192 on the long side (memory)
+FORMATS = ("PNG", "JPEG", "GIF", "WEBP", "BMP", "ICO", "TIFF")
+
+
+def sniff(data: bytes) -> str | None:
+    """Raster format by magic bytes, or None (text, SVG, PDF, fonts, archives, …)."""
+    if len(data) < 4:
+        return None
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "WEBP"
+    for magic, fmt in MAGIC:
+        if data.startswith(magic):
+            return fmt
+    return None
+
+
+class Blanker:
+    def __init__(self) -> None:
+        self.cache: dict[tuple[str, tuple[int, int]], bytes] = {}
+        self.stats: Counter = Counter()          # format -> blobs replaced
+        self.unsized: int = 0                    # blobs Pillow could not size (→ 1×1)
+        self.fallback_png: int = 0               # containers Pillow could not write (→ PNG bytes under the old name)
+        self.bytes_in = 0
+        self.bytes_out = 0
+
+    def size_of(self, data: bytes) -> tuple[int, int] | None:
+        try:
+            from PIL import Image
+            with Image.open(io.BytesIO(data)) as im:   # lazy: reads the header only
+                w, h = im.size
+            return (int(w), int(h)) if w > 0 and h > 0 else None
+        except Exception:  # noqa: BLE001 — corrupt / truncated / bomb-guarded → unsized
+            return None
+
+    def blank(self, data: bytes) -> bytes | None:
+        """Bytes of a white image like `data` (same format and size), or None when `data` is not a raster image."""
+        fmt = sniff(data)
+        if fmt is None:
+            return None
+        size = self.size_of(data)
+        if size is None:
+            self.unsized += 1
+            size = (1, 1)
+        if fmt == "ICO":
+            size = (min(size[0], 256), min(size[1], 256))
+        if size[0] * size[1] > MAX_PIXELS:
+            scale = (MAX_PIXELS / (size[0] * size[1])) ** 0.5
+            size = (max(1, int(size[0] * scale)), max(1, int(size[1] * scale)))
+        key = (fmt, size)
+        out = self.cache.get(key)
+        if out is None:
+            out = self._render(fmt, size)
+            self.cache[key] = out
+        self.stats[fmt] += 1
+        self.bytes_in += len(data)
+        self.bytes_out += len(out)
+        return out
+
+    def _render(self, fmt: str, size: tuple[int, int]) -> bytes:
+        from PIL import Image
+        im = Image.new("L", size, 255)           # 1 byte per pixel: a 24 MP photo costs 24 MB transiently
+        buf = io.BytesIO()
+        kwargs = {"quality": 40} if fmt == "JPEG" else ({"sizes": [size]} if fmt == "ICO" else {})
+        try:
+            im.save(buf, format=fmt, **kwargs)
+        except Exception:  # noqa: BLE001 — a container Pillow cannot write here: still a valid picture, as PNG
+            buf = io.BytesIO()
+            im.save(buf, format="PNG")
+            self.fallback_png += 1
+        return buf.getvalue()
+
+    def report(self) -> dict:
+        return {"blobs": sum(self.stats.values()), "by_format": dict(sorted(self.stats.items())),
+                "unsized": self.unsized, "fallback_png": self.fallback_png,
+                "bytes_in": self.bytes_in, "bytes_out": self.bytes_out, "svg": "untouched (text)"}
