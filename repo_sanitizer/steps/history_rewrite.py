@@ -121,11 +121,15 @@ def run_brand_map_rewrite(ctx: RunContext, brand_map_rows: list) -> None:
 GITLEAKS_TIMEOUT_DEFAULT = 600
 
 
-def gitleaks_timeout() -> int:
-    """Seconds one gitleaks pass may take: ``RS_GITLEAKS_TIMEOUT`` (default 600). A 474 MB / 4.8k-commit history
-    needs far more than 600 s for ``--log-opts=--all``; the anonymization pipeline sets 3600 (2026-09-03)."""
+def gitleaks_timeout() -> int | None:
+    """Seconds one gitleaks pass may take: ``RS_GITLEAKS_TIMEOUT`` (default 600); ``0`` = no limit. A 474 MB /
+    4.8k-commit history needs far more than 600 s for ``--log-opts=--all``; the anonymization pipeline runs big repos
+    without any timeout and watches progress instead (2026-09-04)."""
+    raw = (os.environ.get("RS_GITLEAKS_TIMEOUT", "") or "").strip().lower()
+    if raw in ("0", "none", "off", "unlimited"):
+        return None
     try:
-        return max(60, int(os.environ.get("RS_GITLEAKS_TIMEOUT", "") or GITLEAKS_TIMEOUT_DEFAULT))
+        return max(60, int(raw)) if raw else GITLEAKS_TIMEOUT_DEFAULT
     except ValueError:
         return GITLEAKS_TIMEOUT_DEFAULT
 
@@ -146,7 +150,7 @@ def _gitleaks_secret_values(args: list[str], cwd: str, timeout: int | None = Non
         subprocess.run(
             args + ["--config", cfg, "--ignore-gitleaks-allow",
                     "--report-format", "json", "--report-path", report, "--no-banner"],
-            capture_output=True, text=True, timeout=timeout or gitleaks_timeout(), cwd=cwd,
+            capture_output=True, text=True, timeout=timeout if timeout is not None else gitleaks_timeout(), cwd=cwd,
         )
         # Best-effort collection: a missing / empty / corrupt report means we
         # collected nothing HERE (ok=False → caller logs and continues). It must
@@ -235,7 +239,7 @@ def _path_basenames(work: str) -> set[str]:
     on-disk name (broken import path / docker build-context / COPY / WORKDIR)."""
     try:
         r = subprocess.run(
-            ["git", "ls-files"], cwd=work, capture_output=True, text=True, timeout=60
+            ["git", "ls-files"], cwd=work, capture_output=True, text=True
         )
     except Exception:  # noqa: BLE001
         return set()
@@ -293,7 +297,7 @@ def _is_declared_identifier(work: str, value: str) -> bool:
     try:
         r = subprocess.run(
             ["git", "grep", "-I", "-l", "-E", "-e", pat, "--", "."],
-            cwd=work, capture_output=True, text=True, timeout=60,
+            cwd=work, capture_output=True, text=True,
         )
     except Exception:  # noqa: BLE001 — best-effort; treat a grep failure as "not declared"
         return False
@@ -363,7 +367,7 @@ def run_history_secret_gate(ctx: RunContext) -> list:
             except FileNotFoundError as e:
                 raise RuntimeError("gitleaks not installed; cannot verify history secrets") from e
             except subprocess.TimeoutExpired:
-                logger.warning("post-rewrite gitleaks %s pass timed out after %d s (RS_GITLEAKS_TIMEOUT): history secrets "
+                logger.warning("post-rewrite gitleaks %s pass timed out after %s s (RS_GITLEAKS_TIMEOUT): history secrets "
                                "UNVERIFIED — flagged as a CRITICAL SECRET finding, the rewrite is kept", label, timeout)
                 return [{"RuleID": "gitleaks-timeout", "File": f"<history:{label}>", "StartLine": 0, "Commit": "",
                          "Secret": f"<gitleaks {label} pass timed out after {timeout} s: history secrets UNVERIFIED>"}]

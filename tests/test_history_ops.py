@@ -557,6 +557,8 @@ def test_history_secret_gate_timeout_flags_instead_of_aborting(tmp_path, monkeyp
     assert hr.gitleaks_timeout() == 77
     monkeypatch.setenv("RS_GITLEAKS_TIMEOUT", "junk")
     assert hr.gitleaks_timeout() == hr.GITLEAKS_TIMEOUT_DEFAULT
+    monkeypatch.setenv("RS_GITLEAKS_TIMEOUT", "0")
+    assert hr.gitleaks_timeout() is None, "0 = no timeout (big repos are watched, not clocked)"
     monkeypatch.setenv("RS_GITLEAKS_TIMEOUT", "77")
 
     def boom(args, **kw):

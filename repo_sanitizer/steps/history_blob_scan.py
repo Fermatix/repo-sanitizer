@@ -94,7 +94,17 @@ def run_history_blob_scan(
     skipped_large = 0
     ner_targets: list[ScanTarget] = []
 
-    for blob_sha, path in blobs:
+    t_scan0 = time.perf_counter()
+    t_last_log = t_scan0
+    for i, (blob_sha, path) in enumerate(blobs, 1):
+        # progress every 1000 blobs or 5 minutes: a 4.8k-commit history scans for hours and used to be silent
+        now = time.perf_counter()
+        if i % 1000 == 0 or now - t_last_log >= 300:
+            t_last_log = now
+            elapsed = now - t_scan0
+            eta = elapsed / i * (len(blobs) - i) if i else 0.0
+            logger.info("history blob scan: %d/%d blobs (%d%%), %dm elapsed, ~%dm left",
+                        i, len(blobs), 100 * i // max(1, len(blobs)), int(elapsed // 60), int(eta // 60))
         ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
 
         # Skip known binary extensions
