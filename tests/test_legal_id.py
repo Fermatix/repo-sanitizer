@@ -39,3 +39,13 @@ def test_digit_run_not_glued_to_longer_number():
         ScanTarget(file_path="t.txt", content="id = 77070838931234567\n")
     )
     assert not findings
+
+
+def test_checksum_detector_is_zone_free():
+    """A bare int in code (no string/comment zone) and HTML text outside <?php ?> are exactly where the
+    audit rounds kept finding valid ИНН by hand — the checksum makes the zone restriction pure lost recall."""
+    from repo_sanitizer.detectors.base import Zone
+    zoned = ScanTarget(file_path="t.py", content="INN = 7707083893\nx = 1\n", zones=[Zone(0, 0)])   # zoned file, id outside every zone
+    assert [f.matched_value for f in RuLegalIdDetector().detect(zoned)] == ["7707083893"]
+    html = ScanTarget(file_path="t.php", content="<p>ИНН 1027700132195</p>\n", zones=[])
+    assert [f.matched_value for f in RuLegalIdDetector().detect(html)] == ["1027700132195"]

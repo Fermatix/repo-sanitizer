@@ -499,3 +499,16 @@ def test_collision_ignores_repeated_identical_rows():
         {"pattern": "extyl", "replacement": "acme1"},  # same pattern twice → not a collision
     ]
     assert detect_brand_map_collisions(rows) == {}
+
+
+def test_digit_literals_are_digit_boundaried(pii_defs):
+    """A legal id collected as a literal (RuLegalIdDetector / RuRequisitesDetector) must not mask the HEAD of a
+    longer, unrelated number: ИНН 7707083893 inside ORDER_NO 77070838930000 left "REDACTED_…0000" (2026-09-03)."""
+    scr = Scrubber(SALT, pii_pattern_defs=pii_defs, secret_literals=["7707083893", "770701001"])
+    blob = _Blob(b"INN = 7707083893\nKPP = '770701001'\nORDER_NO = 77070838930000\nTS = 1770701001\n")
+    scr.blob(blob)
+    assert b"7707083893\n" not in blob.data and b"'770701001'" not in blob.data and b"REDACTED_" in blob.data
+    assert b"ORDER_NO = 77070838930000\n" in blob.data          # the decoy survives byte-for-byte
+    assert b"TS = 1770701001\n" in blob.data                     # a digit prefix protects the tail too
+    msg = scr.message(b"fix inn 7707083893 in order 77070838930000")
+    assert b"7707083893 in" not in msg and b"77070838930000" in msg

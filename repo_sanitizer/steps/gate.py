@@ -19,8 +19,10 @@ GATE_DEFINITIONS = {
         "check": lambda f: f.category == Category.SECRET,
     },
     "PII_HIGH": {
-        "description": "No high-severity PII findings remain",
-        "check": lambda f: f.category == Category.PII and f.severity == Severity.HIGH,
+        # HIGH *and* CRITICAL: an exact `== HIGH` left every CRITICAL PII pattern (passport_ru, ssn,
+        # credit_card) invisible to the gate (lord-of-the-repos plan 5b.1, 2026-09-03).
+        "description": "No high- or critical-severity PII findings remain",
+        "check": lambda f: f.category == Category.PII and f.severity in (Severity.HIGH, Severity.CRITICAL),
     },
     "DICTIONARY": {
         "description": "No corporate dictionary matches remain",

@@ -319,6 +319,12 @@ def _literal_repl(salt: bytes, values, prefix: str) -> list[tuple[object, bytes]
     out: list[tuple[object, bytes]] = []
     for v in sorted({s for s in (values or []) if s}, key=len, reverse=True):
         mask = (prefix + hash12(salt, v.encode("utf-8"))).encode()
+        if v.isdigit():
+            # a legal id / account number (RuLegalIdDetector, RuRequisitesDetector): DIGIT-boundaried, or the
+            # ИНН 7707083893 masks the head of the unrelated order number 77070838930000 → "REDACTED_…0000"
+            # (caught by the lord-of-the-repos selftest decoy, 2026-09-03)
+            out.append((re.compile(rb"(?<!\d)" + re.escape(v.encode()) + rb"(?!\d)"), mask))
+            continue
         if is_identifier(v):
             out.append((
                 re.compile(rb"(?<![A-Za-z0-9_])" + re.escape(v.encode()) + rb"(?![A-Za-z0-9_])"),

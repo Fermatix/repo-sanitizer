@@ -164,7 +164,7 @@ def _collect_secret_literals(ctx: RunContext) -> list[str]:
         # Scrubber does not re-apply, so its exact-digit findings are collected as
         # literals here to be masked across history (the regex inn/ogrn/kpp/fio
         # patterns are re-applied by the Scrubber via pii_pattern_defs).
-        if val and det in ("SecretsDetector", "EndpointDetector", "RuLegalIdDetector"):
+        if val and det in ("SecretsDetector", "EndpointDetector", "RuLegalIdDetector", "RuRequisitesDetector"):
             # A public-IP endpoint is masked to a VALID documentation-range IP by
             # the scrubber's public-IP pass; collecting it as an exact literal would
             # instead stamp REDACTED_<hash> over it (a non-IP that breaks a

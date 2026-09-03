@@ -76,14 +76,17 @@ def is_valid_ru_legal_id(value: str) -> bool:
 
 
 class RuLegalIdDetector(Detector):
-    """Flag checksum-valid Russian ИНН / ОГРН appearing WITHOUT a label."""
+    """Flag checksum-valid Russian ИНН / ОГРН appearing WITHOUT a label.
+
+    ZONE-FREE on purpose (2026-09-03): the checksum makes false positives near zero, so restricting
+    matches to string/comment zones in CODE files only lost recall — a bare ``INN = 7707083893``
+    literal, an unquoted ``json={"inn": 7707083893}`` int or HTML text between ``?>`` and ``<?php``
+    is exactly where the audit rounds kept finding them by hand (49 of 60 misses were in .py/.php)."""
 
     def detect(self, target: ScanTarget) -> list[Finding]:
         findings: list[Finding] = []
         for m in _DIGIT_RUN.finditer(target.content):
             start, end = m.start(1), m.end(1)
-            if not self._in_zones(target, start, end):
-                continue
             value = m.group(1)
             if not is_valid_ru_legal_id(value):
                 continue
@@ -101,9 +104,3 @@ class RuLegalIdDetector(Detector):
                 )
             )
         return findings
-
-    @staticmethod
-    def _in_zones(target: ScanTarget, start: int, end: int) -> bool:
-        if not target.is_zoned:
-            return True
-        return any(z.start <= start and end <= z.end for z in target.zones)

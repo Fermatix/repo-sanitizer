@@ -103,3 +103,11 @@ def test_brand_gate_enumerates_worklist(gate_ctx):
     result = run_gate_check(gate_ctx)
     assert result["gates"]["BRAND_IDENTIFIER"]["failing_count"] == 2
     assert result["gates"]["BRAND_PATH"]["failing_count"] == 1
+
+
+def test_critical_pii_fails_the_pii_gate(gate_ctx):
+    """PII_HIGH used to compare `== HIGH` exactly, so CRITICAL PII (passport_ru, ssn, credit_card) never failed a gate."""
+    gate_ctx.post_findings.append(Finding(detector="RegexPIIDetector", category=Category.PII, severity=Severity.CRITICAL,
+                                          file_path="a.txt", line=1, offset_start=0, offset_end=11, matched_value="1234 567890"))
+    result = run_gate_check(gate_ctx)
+    assert result["gates"]["PII_HIGH"]["passed"] is False and result["gates"]["PII_HIGH"]["failing_count"] == 1

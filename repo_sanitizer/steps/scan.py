@@ -71,6 +71,7 @@ def build_detectors(
     from repo_sanitizer.detectors.dictionary import DictionaryDetector
     from repo_sanitizer.detectors.endpoint import EndpointDetector
     from repo_sanitizer.detectors.legal_id import RuLegalIdDetector
+    from repo_sanitizer.detectors.requisites import RuRequisitesDetector
     from repo_sanitizer.detectors.ner import NERDetector
 
     brand_terms, keep = build_brand_terms(rulepack)
@@ -80,6 +81,7 @@ def build_detectors(
     if rulepack.pii_patterns:
         detectors.append(RegexPIIDetector(rulepack.pii_patterns, keep=keep))
     detectors.append(RuLegalIdDetector())
+    detectors.append(RuRequisitesDetector())      # КПП / accounts / лицевой счёт next to a valid ИНН (2026-09-03)
     if brand_terms:
         detectors.append(DictionaryDetector({"brands": brand_terms}, keep=keep))
     domain_list = rulepack.dictionaries.get("domains", [])
