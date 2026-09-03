@@ -543,3 +543,29 @@ def test_blank_raster_images_replaces_raster_blobs_but_not_svg_and_is_off_by_def
     off = Scrubber(SALT)
     keep = Blob(img("PNG")); off.blob(keep)
     assert keep.data == img("PNG") and off.blank_report() == "blank_raster_images: off"
+
+
+def test_history_secret_gate_timeout_flags_instead_of_aborting(tmp_path, monkeypatch):
+    """A gitleaks TIMEOUT in the fail-closed post-rewrite gate must not throw away the rewrite (10 h on a 4.8k-commit
+    repo, 2026-09-03): it returns one synthetic CRITICAL SECRET finding so the SECRETS gate goes red, and the
+    timeout is configurable through RS_GITLEAKS_TIMEOUT."""
+    import subprocess
+    from types import SimpleNamespace
+    from repo_sanitizer.steps import history_rewrite as hr
+
+    monkeypatch.setenv("RS_GITLEAKS_TIMEOUT", "77")
+    assert hr.gitleaks_timeout() == 77
+    monkeypatch.setenv("RS_GITLEAKS_TIMEOUT", "junk")
+    assert hr.gitleaks_timeout() == hr.GITLEAKS_TIMEOUT_DEFAULT
+    monkeypatch.setenv("RS_GITLEAKS_TIMEOUT", "77")
+
+    def boom(args, **kw):
+        raise subprocess.TimeoutExpired(cmd=args, timeout=kw.get("timeout"))
+    monkeypatch.setattr(hr.subprocess, "run", boom)
+    monkeypatch.setattr(hr, "_git_all_commit_messages", lambda work: "")
+    ctx = SimpleNamespace(work_dir=tmp_path, salt=SALT)
+    findings = hr.run_history_secret_gate(ctx)
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.category.name == "SECRET" and f.severity.name == "CRITICAL"
+    assert "UNVERIFIED" in f.matched_value and "77 s" in f.matched_value and "blobs" in f.file_path

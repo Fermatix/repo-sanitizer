@@ -118,7 +118,19 @@ def run_brand_map_rewrite(ctx: RunContext, brand_map_rows: list) -> None:
     logger.info("Brand-map history rewrite complete")
 
 
-def _gitleaks_secret_values(args: list[str], cwd: str, timeout: int = 600) -> tuple[list[str], bool]:
+GITLEAKS_TIMEOUT_DEFAULT = 600
+
+
+def gitleaks_timeout() -> int:
+    """Seconds one gitleaks pass may take: ``RS_GITLEAKS_TIMEOUT`` (default 600). A 474 MB / 4.8k-commit history
+    needs far more than 600 s for ``--log-opts=--all``; the anonymization pipeline sets 3600 (2026-09-03)."""
+    try:
+        return max(60, int(os.environ.get("RS_GITLEAKS_TIMEOUT", "") or GITLEAKS_TIMEOUT_DEFAULT))
+    except ValueError:
+        return GITLEAKS_TIMEOUT_DEFAULT
+
+
+def _gitleaks_secret_values(args: list[str], cwd: str, timeout: int | None = None) -> tuple[list[str], bool]:
     """Run a gitleaks command writing a JSON report and return (secret_values, ok).
 
     ``args`` must NOT include the report flags — they are appended here. ``ok`` is
@@ -134,7 +146,7 @@ def _gitleaks_secret_values(args: list[str], cwd: str, timeout: int = 600) -> tu
         subprocess.run(
             args + ["--config", cfg, "--ignore-gitleaks-allow",
                     "--report-format", "json", "--report-path", report, "--no-banner"],
-            capture_output=True, text=True, timeout=timeout, cwd=cwd,
+            capture_output=True, text=True, timeout=timeout or gitleaks_timeout(), cwd=cwd,
         )
         # Best-effort collection: a missing / empty / corrupt report means we
         # collected nothing HERE (ok=False → caller logs and continues). It must
@@ -325,6 +337,11 @@ def run_history_secret_gate(ctx: RunContext) -> list:
     the pre-rewrite shape). Raises if gitleaks cannot produce a report — refusing
     to certify "no secrets" on a tool error. ``--ignore-gitleaks-allow`` defeats
     any partner ``# gitleaks:allow`` comment that would otherwise suppress a leak.
+
+    A TIMEOUT (``RS_GITLEAKS_TIMEOUT``, default 600 s) is not a tool error: the run keeps its rewritten history and
+    returns one synthetic CRITICAL SECRET finding (``gitleaks-timeout``, "history secrets UNVERIFIED") so the
+    SECRETS gate goes red and the report says why — a 10-hour rewrite of a 4.8k-commit repo used to be thrown
+    away here (2026-09-03).
     """
     from repo_sanitizer.detectors.base import Category, Finding, Severity
 
@@ -336,14 +353,20 @@ def run_history_secret_gate(ctx: RunContext) -> list:
             cfg = os.path.join(td, "gitleaks.toml")
             # allowlist OUR masks (present post-rewrite); useDefault rules otherwise.
             Path(cfg).write_text(build_gitleaks_config(allowlist_masks=True), encoding="utf-8")
+            timeout = gitleaks_timeout()
             try:
                 subprocess.run(
                     args + ["--config", cfg, "--ignore-gitleaks-allow",
                             "--report-format", "json", "--report-path", report, "--no-banner"],
-                    capture_output=True, text=True, timeout=600, cwd=cwd,
+                    capture_output=True, text=True, timeout=timeout, cwd=cwd,
                 )
             except FileNotFoundError as e:
                 raise RuntimeError("gitleaks not installed; cannot verify history secrets") from e
+            except subprocess.TimeoutExpired:
+                logger.warning("post-rewrite gitleaks %s pass timed out after %d s (RS_GITLEAKS_TIMEOUT): history secrets "
+                               "UNVERIFIED — flagged as a CRITICAL SECRET finding, the rewrite is kept", label, timeout)
+                return [{"RuleID": "gitleaks-timeout", "File": f"<history:{label}>", "StartLine": 0, "Commit": "",
+                         "Secret": f"<gitleaks {label} pass timed out after {timeout} s: history secrets UNVERIFIED>"}]
             # FAIL CLOSED on a missing / empty / corrupt report — never certify
             # history secret-free from a report gitleaks did not fully write (an
             # empty report read as "[]" would silently pass the shipping gate).
