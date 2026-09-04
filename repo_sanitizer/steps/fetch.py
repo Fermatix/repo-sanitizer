@@ -17,6 +17,14 @@ from repo_sanitizer.steps._git_utils import (
 
 logger = logging.getLogger(__name__)
 
+# git speaks whatever encoding the repository was authored in: a branch name, a path or a
+# commit subject can be cp1251/latin-1 and is NOT valid UTF-8. `text=True` alone decodes
+# with the strict default, so subprocess raises UnicodeDecodeError from inside
+# communicate() and the whole run dies before a single blob is looked at. Everything
+# captured here feeds an error message, never a parsed path, so replacing the undecodable
+# bytes is lossless for the purpose and keeps git's own diagnostics readable.
+_TEXT = {"text": True, "errors": "replace"}
+
 
 def _run_git(
     args: list[str],
@@ -54,8 +62,8 @@ def _run_git(
         cwd=str(cwd) if cwd is not None else None,
         check=False,
         capture_output=not interactive,
-        text=True,
         env=env,
+        **_TEXT,
     )
     if result.returncode != 0:
         # check=True raised a bare "Command '[...]' returned non-zero exit
@@ -84,7 +92,7 @@ def _verify_git_bundle(bundle_path: Path) -> None:
         ["git", "bundle", "verify", str(bundle_path)],
         check=False,
         capture_output=True,
-        text=True,
+        **_TEXT,
     )
     if result.returncode != 0:
         detail = ((result.stderr or "") + (result.stdout or "")).strip()
@@ -142,7 +150,7 @@ def fetch(ctx: RunContext, source: str) -> None:
             cwd=str(dest),
             check=True,
             capture_output=True,
-            text=True,
+            **_TEXT,
         )
     elif (dest / ".git").exists():
         # Default-branch case: if the source bundle/repo has a broken or unborn
