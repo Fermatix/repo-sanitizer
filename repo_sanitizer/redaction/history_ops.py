@@ -350,6 +350,55 @@ def _apply_literal(data: bytes, matcher: object, repl: bytes) -> bytes:
     return matcher.sub(lambda _m: repl, data)
 
 
+_DIGIT_RUN = re.compile(rb"(?<!\d)\d+(?!\d)")                       # a maximal digit run
+_WORD_RUN = re.compile(rb"(?<![A-Za-z0-9_])[A-Za-z0-9_]+(?![A-Za-z0-9_])")  # a maximal identifier run
+
+
+class LiteralScrubber:
+    """Batched application of the literal masks of ``_literal_repl`` — same result, one pass per class.
+
+    The per-literal loop (one compiled regex ``.sub()`` per value per blob) is O(values × blobs × size): a repo
+    whose history carries a legal-id dump produced 23k digit literals × 62k blobs ≈ 1.5 billion buffer scans
+    (Pass-1 at ~1 MB/hour, f1d76c04, 2026-09-04). A digit literal ``(?<!\d)V(?!\d)`` matches exactly a MAXIMAL
+    digit run equal to V, and an identifier literal ``(?<![A-Za-z0-9_])V(?![A-Za-z0-9_])`` exactly a maximal
+    identifier run equal to V — so one regex over the maximal runs plus a dict lookup is equivalent and O(size).
+    Raw (non-identifier) forms stay exact byte replaces, longest first. Order raw → identifiers → digits keeps
+    the old longest-first semantics for the overlaps that can occur (a raw value containing a digit run, an
+    identifier value containing digits)."""
+
+    def __init__(self, salt: bytes, values, prefix: str) -> None:
+        self.digits: dict[bytes, bytes] = {}
+        self.idents: dict[bytes, bytes] = {}
+        self.raw: list[tuple[bytes, bytes]] = []
+        for v in sorted({s for s in (values or []) if s}, key=len, reverse=True):
+            mask = (prefix + hash12(salt, v.encode("utf-8"))).encode()
+            if v.isdigit():
+                self.digits[v.encode()] = mask
+            elif is_identifier(v):
+                self.idents[v.encode()] = mask
+            else:
+                for enc in ("utf-8", "cp1251"):
+                    try:
+                        self.raw.append((v.encode(enc), mask))
+                    except UnicodeEncodeError:
+                        pass
+        self.count = len(self.digits) + len(self.idents) + len(self.raw)
+
+    def apply(self, data: bytes) -> bytes:
+        if not self.count:
+            return data
+        for raw, mask in self.raw:
+            if raw in data:
+                data = data.replace(raw, mask)
+        if self.idents:
+            idents = self.idents
+            data = _WORD_RUN.sub(lambda m: idents.get(m.group(0), m.group(0)), data)
+        if self.digits:
+            digits = self.digits
+            data = _DIGIT_RUN.sub(lambda m: digits.get(m.group(0), m.group(0)), data)
+        return data
+
+
 class Scrubber:
     """Holds compiled scrubbing state and exposes git-filter-repo callbacks.
 
@@ -443,12 +492,14 @@ class Scrubber:
                 self._other_pii.append((name.encode(), rx))
 
         # Secret literals → REDACTED_<hash>, exact byte replace (utf-8 + cp1251).
-        self._secret_repl = _literal_repl(salt, secret_literals, "REDACTED_")
+        self._secret_scrub = LiteralScrubber(salt, secret_literals, "REDACTED_")
+        self._secret_repl = []   # legacy per-literal list, superseded by _secret_scrub (kept for callers that read it)
         # NER person names → ANON_PER_<hash> (matches replacements.mask_person).
         # Closes the leak where filter-repo resets the working tree from
         # blob_callback output (no NER) and a working-tree-redacted name would
         # reappear in the shipped HEAD.
-        self._person_repl = _literal_repl(salt, person_literals, "ANON_PER_")
+        self._person_scrub = LiteralScrubber(salt, person_literals, "ANON_PER_")
+        self._person_repl = []
 
         self._brands = compile_brand_map(brand_map_rows or [])
         self._deny_globs = list(deny_globs or [])
@@ -484,10 +535,8 @@ class Scrubber:
         Secret/person literals are applied FIRST (identifier values word-boundaried,
         everything else exact bytes) so a secret which happens to contain an email/IP
         substring is masked entirely."""
-        for matcher, repl in self._secret_repl:
-            data = _apply_literal(data, matcher, repl)
-        for matcher, repl in self._person_repl:
-            data = _apply_literal(data, matcher, repl)
+        data = self._secret_scrub.apply(data)
+        data = self._person_scrub.apply(data)
         if self._email_re is not None:
             data = self._email_re.sub(
                 lambda m: b"user_" + hash12(self.salt, m.group()).encode() + b"@example.invalid",

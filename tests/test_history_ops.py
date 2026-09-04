@@ -571,3 +571,33 @@ def test_history_secret_gate_timeout_flags_instead_of_aborting(tmp_path, monkeyp
     f = findings[0]
     assert f.category.name == "SECRET" and f.severity.name == "CRITICAL"
     assert "UNVERIFIED" in f.matched_value and "77 s" in f.matched_value and "blobs" in f.file_path
+
+
+def test_literal_scrubber_matches_the_per_literal_path_and_is_linear():
+    """LiteralScrubber (one pass per class) must produce exactly what the per-literal loop produced, including the
+    digit-boundary and identifier-boundary rules, and stay fast with tens of thousands of literals (f1d76c04:
+    23k checksum-valid ИНН in history made the per-literal loop run at ~1 MB/hour)."""
+    import time
+    from repo_sanitizer.redaction.history_ops import LiteralScrubber, _apply_literal, _literal_repl
+
+    values = ["7707083893", "1027700132195", "Queue", "com", "sk_live_ab12-cd34.ef56", "Иван Петров", "token123", "123"]
+    blob = ("order 77070838930000 inn=7707083893; ogrn 1027700132195\n"
+            "QueueDeclare Queue queue com components token123 x123 123 order7707083893\n"
+            "key: sk_live_ab12-cd34.ef56; author Иван Петров\n").encode("utf-8")
+    blob += "Иван Петров".encode("cp1251") + b"\n"
+    legacy = blob
+    for matcher, repl in _literal_repl(SALT, values, "REDACTED_"):
+        legacy = _apply_literal(legacy, matcher, repl)
+    fast = LiteralScrubber(SALT, values, "REDACTED_").apply(blob)
+    assert fast == legacy
+    assert b"77070838930000" in fast and b"inn=REDACTED_" in fast, "the order number keeps its head, the bare INN is masked"
+    assert b"QueueDeclare" in fast and b"components" in fast and b" Queue " not in fast and b" com " not in fast
+    assert b"xREDACTED_" in fast and b" 123 " not in fast and b"orderREDACTED_" in fast, "a letter is a digit boundary: x123 masks like the old rule"
+    assert "Иван Петров".encode("utf-8") not in fast and "Иван Петров".encode("cp1251") not in fast
+
+    many = [str(7000000000 + i) for i in range(20000)] + [f"secret_{i}_x" for i in range(2000)]
+    big = (b"lorem ipsum 7000000042 dolor secret_7_x sit 9999999999 amet order7000000001 " * 20000)  # ~1.6 MB
+    scr = LiteralScrubber(SALT, many, "REDACTED_")
+    t0 = time.perf_counter(); out = scr.apply(big); dt = time.perf_counter() - t0
+    assert b"7000000042" not in out and b"secret_7_x" not in out and b"9999999999" in out and b"orderREDACTED_" in out
+    assert dt < 5.0, f"one pass per class must stay linear: {dt:.2f}s for 22k literals over 1.6 MB"
