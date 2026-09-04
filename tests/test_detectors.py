@@ -682,3 +682,17 @@ def test_build_history_detectors_parity():
     assert "extyl" in hits, "brand still flagged in history"
     assert "jira" not in hits, "domains split off the history brand dictionary"
     assert "yandex" not in hits, "keep-list applied in history"
+
+
+@pytest.mark.parametrize("content", ["return Ad::$rules;", "$x = Ace::$cache;", "Face::make($a)", "Db::open(path)", "std::Bed<int>"])
+def test_endpoint_ignores_hexlike_scope_identifiers(content):
+    """ea8b6d91: `Ad::$rules` (a valid abbreviated IPv6 `ad::`) was rewritten to `2001:db8::1ff1$rules` — two PHP syntax
+    errors in the deliverable. A real address has a digit and is never followed by $ ( \\ < >."""
+    findings = EndpointDetector().detect(ScanTarget(file_path="AdController.php", content=content))
+    assert not any(":" in f.matched_value for f in findings), content
+
+
+def test_endpoint_still_flags_public_ipv6_with_letters_only_groups():
+    content = "peer = 2a02:6b8::feed:0ff\n"     # has digits → a real address
+    findings = EndpointDetector().detect(ScanTarget(file_path="t.txt", content=content))
+    assert any(f.matched_value == "2a02:6b8::feed:0ff" for f in findings)

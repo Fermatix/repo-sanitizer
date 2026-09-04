@@ -258,6 +258,14 @@ class EndpointDetector(Detector):
                 value = m.group()
                 if value in self.keep:
                     continue
+                if pattern is IPV6_PATTERN:
+                    # Hex-looking identifiers are valid abbreviated IPv6 addresses: PHP `Ad::$rules` became
+                    # `2001:db8::1ff1$rules` (ea8b6d91 shipped two syntax errors; `Ace::`, `Bed::`, `Face::`,
+                    # C++ `Db::open` are the same class). A real address carries at least one digit and is
+                    # never followed by a scope/static-access sigil.
+                    nxt = target.content[end:end + 1]
+                    if not any(ch.isdigit() for ch in value) or nxt in ("$", "(", "\\", "<", ">"):
+                        continue
                 try:
                     ip = ipaddress.ip_address(value)
                 except ValueError:
