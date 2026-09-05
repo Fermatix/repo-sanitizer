@@ -69,3 +69,13 @@ def test_subagent_round_negatives_and_positives():
     j = '{"password": "Пароль", "token": "Токен"}'
     assert not ck.is_conf_path("src/locales/ru.json")
     assert ck.ConfigMasker().mask(j.encode(), "src/locales/ru.json") == j.encode()
+
+
+def test_version_constraints_are_not_secrets():
+    """a1b4bff4: `"jsonwebtoken": "^9.0.0"` in package.json became REDACTED (the key contains `token`)."""
+    from repo_sanitizer.redaction.conf_keys import is_real
+    for v in ("^9.0.0", "~2.10.14", ">=1.2.3 <2.0.0", "1.0.0-beta.1", "v1.2.3", "2.10.14", "latest", "*", "1.x"):
+        assert not is_real(v), v
+    for v in ("s3cretPa55word", "glpat-abcDEF123456", "AKIAIOSFODNN7EXAMPLE", "9f86d081884c7d659a2feaa0c55ad015"):
+        assert is_real(v), v
+

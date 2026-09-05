@@ -21,6 +21,7 @@ from repo_sanitizer.rulepack import PIIPattern
 _KEEPABLE_CONN_STRING_NAMES = frozenset({
     "db_connection_postgresql", "db_connection_mysql", "db_connection_mongodb",
     "db_connection_redis", "db_connection_amqp", "jdbc_url",
+    "https_url",          # host-only + keep-aware in the scrubber since 2026-09-06: a kept host is left, so don't flag it
 })
 def pattern_excluded(globs, file_path: str) -> bool:
     """Is `file_path` covered by one of the pattern's exclude_globs? A history-scan virtual path

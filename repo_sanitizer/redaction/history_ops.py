@@ -68,6 +68,11 @@ _URL_ENDPOINT_NAMES = frozenset({
     # http(s) credential / internal-TLD URLs: also host-masked (keep scheme so
     # nginx proxy_pass / YAML stay valid; userinfo credentials are dropped).
     "internal_corp_url", "basic_auth_in_url",
+    # the tracked rulepack's blanket `https_url` (any non-allowlisted http(s) URL): host-only + keep-aware here too,
+    # so a client host becomes <hash>.example.invalid with its path intact while public hosts the pattern does not
+    # allowlist (phpunit.de schema, php.net docs, YUI licence) stay whole — the blanket REDACTED_HTTPS_URL_… marker
+    # broke schema validation, README links and Gemfile sources (954e2780, 602be7b0, 7ea11a64)
+    "https_url",
 })
 #  * Grouped secret patterns whose match wraps the secret VALUE in keyword + quotes
 #    (apiKey = "VALUE", AWS_SECRET_ACCESS_KEY=VALUE) → replace ONLY the captured

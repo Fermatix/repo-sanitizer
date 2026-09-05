@@ -638,3 +638,15 @@ def test_xml_secret_carriers_mask_only_the_value():
     once = scr.message(b"<password>s3cretPa55</password>")
     assert scr.message(once) == once
 
+
+def test_https_url_pattern_masks_the_host_only_and_keeps_public_hosts():
+    """The tracked rulepack's blanket https_url used to become REDACTED_HTTPS_URL_<hash> (a build-breaking marker over
+    phpunit schema locations, php.net doc links, Gemfile sources). Routed through the endpoint masker: client host →
+    <hash>.example.invalid with the path intact; a universal public host is left whole."""
+    defs = [("https_url", r'https?://(?!(?:[a-zA-Z0-9-]+)(?![a-zA-Z0-9.\-@]|:\d))[^\s"\'<>\])}{`\\;]+', [])]
+    scr = Scrubber(SALT, pii_pattern_defs=defs, keep=set())
+    out = scr.message(b'see https://gitlab.acmestudio.ru/api/v4/projects and https://schema.phpunit.de/9.3/phpunit.xsd')
+    assert b"acmestudio.ru" not in out and b".example.invalid/api/v4/projects" in out
+    assert b"https://schema.phpunit.de/9.3/phpunit.xsd" in out
+    assert b"REDACTED_HTTPS_URL" not in out
+

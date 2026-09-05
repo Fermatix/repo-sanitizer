@@ -161,6 +161,7 @@ UNIVERSAL_URL_HOSTS = frozenset({
     # plist (50218c4b), files.pythonhosted.org in uv.lock (3b8751ea), docs/CDN/spec hosts. SINGLE-TENANT only.
     "apple.com", "mozilla.org", "gnu.org", "opensource.org", "creativecommons.org", "python.org",
     "nodejs.org", "jquery.com", "fontawesome.com", "sil.org", "xmlsoap.org", "openxmlformats.org",
+    "phpunit.de", "php.net", "yuilibrary.com", "phpstan.org", "psalm.dev", "getcomposer.org", "packagist.org",   # PHP tooling docs / schemas (954e2780)
     "springframework.org", "sun.com", "oracle.com", "docbook.org", "jetbrains.com", "fonts.googleapis.com",
     "redis.io", "postgresql.org", "nginx.org", "nginx.com", "pypa.io", "djangoproject.com",
     "palletsprojects.com", "sqlalchemy.org", "pydantic.dev", "pytest.org", "shadcn.com", "tradingview.com",

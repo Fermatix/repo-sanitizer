@@ -69,6 +69,7 @@ _SKIP_BASE = {"package-lock.json", "composer.lock", "yarn.lock", "poetry.lock", 
               "gemfile.lock", "packages.lock.json", "flake.lock"}
 MAX_BLOB = 2 * 1024 * 1024
 MASK = "REDACTED"
+_VERSION_VAL = re.compile(r"[~^>=<!|\s]*v?\d+(?:\.[\dx*]+){1,3}(?:[-+][0-9A-Za-z.]+)?(?:\s*(?:\|\||,)?\s*[~^>=<!]*v?\d+(?:\.[\dx*]+){1,3}(?:[-+][0-9A-Za-z.]+)?)*\s*")
 ALLOW_SUFFIXES = (".example", ".sample", ".template", ".dist", ".defaults")
 
 
@@ -118,6 +119,10 @@ def is_real(val: str) -> bool:
     if low.startswith(("your_", "your-", "your ", "redacted", "changeme", "insert_", "replace_", "todo", "fixme", "<", "***")):
         return False
     if v.isdigit() and len(v) < 6:
+        return False
+    # a dependency VERSION constraint under a token-like key (`"jsonwebtoken": "^9.0.0"`, `token_version = ">=1.2 <2"`,
+    # `2.10.14`, `1.0.0-beta.1`) is never a credential — it became the literal REDACTED in package.json (a1b4bff4)
+    if _VERSION_VAL.fullmatch(v) or low in ("latest", "next", "*"):
         return False
     # relative file path (creds/x.json, config/keys/a.pem): first segment without a dot AND a file extension —
     # base64 secrets with '/' (wJalrXUtnFEMI/K7MDENG/…) have no extension and stay masked
