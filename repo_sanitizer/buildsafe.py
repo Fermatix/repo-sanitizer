@@ -148,14 +148,13 @@ def is_dotted_version(value: str) -> bool:
 # resolution. Skip a dotted quad whose CURRENT FIELD is a version context.
 _VERSION_CTX_RE = re.compile(
     r"(?i)(version|assembly|<reference|packagereference|packageref|targetframework"
-    r"|runtimeversion|frameworkversion|\bver\b|v\s*=|mscorlib|netstandard|netcoreapp"
-    # a dependency PIN right before the quad: `clickhouse-cityhash==1.0.2.3` (requirements.txt, c9c2f50c → pip install
-    # broken), `~=` / `>=` / `<=` / `!=`, Gemfile.lock / Podfile.lock `name (7.0.4.3)` / `(= 7.0.4.3)` / `(~> 7.0.4.3)`,
-    # `pkg@1.2.3.4`; the rulepack `ipv4` pattern carries the same guards, this pass has its own regex
-    r"|[=~<>!]=\s*\Z|\A=\s*\Z|\(\s*(?:[=~<>!]+\s*)?\Z|@\Z)"   # `\A=`: `>=` — the `>` is a field-closing delimiter, only `=` survives the cut
+    r"|runtimeversion|frameworkversion|\bver\b|v\s*=|mscorlib|netstandard|netcoreapp)"
 )
-# Delimiters that END a value/field — the version keyword must be in the SAME field
-# as the quad (so a `Version="x")] ... bind <IP>` does not falsely protect the IP).
+# A dependency PIN immediately before the quad — `clickhouse-cityhash==1.0.2.3` (requirements.txt, c9c2f50c: pip install
+# broken), `~=` / `>=` / `<=` / `!=`, Gemfile.lock / Podfile.lock `name (7.0.4.3)` / `(= 7.0.4.3)` / `(~> 7.0.4.3)`,
+# `pkg@1.2.3.4`. Anchored at the quad, so it is checked on the UNCUT window (`>` of `>=` / `~>` is itself a
+# field-closing delimiter). The rulepack `ipv4` pattern carries the same guards; this pass has its own regex.
+_PIN_RE = re.compile(r"(?:[=~<>!]=|\(\s*(?:[=~<>!]+)?|@)\s*\Z")
 _FIELD_CLOSE_RE = re.compile(r"[)\]};>,\n]")
 
 
@@ -165,6 +164,8 @@ def in_version_context(text: str, start: int, window: int = 48) -> bool:
     within the current field — the lookback is cut at the last field-closing
     delimiter, so a version keyword from a PREVIOUS field can't protect a later IP."""
     pre = text[max(0, start - window):start]
+    if _PIN_RE.search(pre):
+        return True
     cut = max((m.end() for m in _FIELD_CLOSE_RE.finditer(pre)), default=0)
     return bool(_VERSION_CTX_RE.search(pre[cut:]))
 
