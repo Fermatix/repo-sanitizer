@@ -17,6 +17,7 @@ detector (the misses were bare ints in .py fixtures and HTML text in .php).
 from __future__ import annotations
 
 import re
+from bisect import bisect_right
 
 from repo_sanitizer.detectors.base import (
     Category,
@@ -40,15 +41,6 @@ _KEY = re.compile(
 _SEP = re.compile(r"[\s\"':=>\-№\[\(]*")
 
 
-def _keyed(prefix: str) -> bool:
-    """The NEAREST key before the value must be a requisites key with only separators in between — on a one-line
-    JSON record `{"kpp": "…", "ts": 1700000000}` the `kpp` key must not vouch for the timestamp after it."""
-    last = None
-    for m in _KEY.finditer(prefix):
-        last = m
-    return last is not None and _SEP.fullmatch(prefix[last.end():]) is not None
-
-
 class RuRequisitesDetector(Detector):
     """Flag the label-less siblings of a checksum-valid ИНН / ОГРН inside a requisites record."""
 
@@ -58,6 +50,11 @@ class RuRequisitesDetector(Detector):
         if not anchors:
             return []
         line_starts = [0] + [i + 1 for i, c in enumerate(content) if c == "\n"]
+        # Index keys once: rescanning every numeric value's line prefix is
+        # quadratic on minified JSON. A key cannot span a candidate number:
+        # _RUN requires a non-word boundary before the number.
+        key_spans = [(m.start(), m.end()) for m in _KEY.finditer(content)]
+        key_ends = [end for _, end in key_spans]
 
         def line_of(pos: int) -> int:
             lo, hi = 0, len(line_starts) - 1
@@ -79,7 +76,15 @@ class RuRequisitesDetector(Detector):
                 continue
             ln = line_of(start)
             near = any(abs(ln - a) <= WINDOW for a in anchor_lines)
-            keyed = _keyed(content[line_starts[ln]:start])
+            # Only the nearest preceding key on this line may vouch for the
+            # number, and only when separators occur between the two. Passing
+            # bounds to fullmatch also avoids copying a potentially huge prefix.
+            key_index = bisect_right(key_ends, start) - 1
+            keyed = (
+                key_index >= 0
+                and key_spans[key_index][0] >= line_starts[ln]
+                and _SEP.fullmatch(content, key_ends[key_index], start) is not None
+            )
             if not ((near and len(value) in (9, 20)) or keyed):
                 continue
             seen.add((start, end))

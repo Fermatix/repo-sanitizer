@@ -59,3 +59,27 @@ def test_json_record_and_html_requisites_block():
 def test_longer_numbers_are_not_split():
     text = f"INN = {INN}\norder = 7707083893000012345678\n"       # 22 digits: not a run of 8–20
     assert RuRequisitesDetector().detect(ScanTarget(file_path="a.py", content=text)) == []
+
+
+def test_minified_records_keep_keys_local_to_their_values():
+    records = ",".join(
+        f'{{"account": "{LS}", "timestamp": 17000000001, "name": "account note"}}'
+        for _ in range(256)
+    )
+    text = f"inn = {INN}\n" + "\n" * 20 + "[" + records + "]"
+    findings = RuRequisitesDetector().detect(ScanTarget("records.json", text))
+    assert _vals(findings) == [LS] * 256
+    assert all(text[f.offset_start:f.offset_end] == LS and f.line == 22 for f in findings)
+
+
+def test_key_index_does_not_cross_lines_or_accept_intervening_words():
+    text = (
+        f"inn = {INN}\n" + "\n" * 20
+        + f'account\n"{LS}"\n'
+        + f'account note: "{LS}"\n'
+        + f'account: "{LS}", timestamp: 17000000001\n'
+        + f'"лицевой счёт": "{LS}"\n'
+    )
+    findings = RuRequisitesDetector().detect(ScanTarget("records.txt", text))
+    assert _vals(findings) == [LS, LS]
+    assert [f.line for f in findings] == [25, 26]
