@@ -103,6 +103,51 @@ All replacements are **deterministic**: same salt + value → same output every 
 
 ---
 
+## Config files and credentials (rulepack 1.1.0)
+
+The bundled `examples/rules` keeps application config modules (`config.*`,
+`settings.*`, `application.*`, `database.*`, including `config.prod.yaml`).
+It enables `mask_config_values: true`: an additional key-name pass replaces
+literal passwords, API keys, tokens and other sensitive config values with
+`REDACTED` in the working tree and throughout every shipped branch's history.
+Keys, quotes, environment references, placeholders and ordinary settings are
+preserved. Existing secret/PII/endpoint detectors still run.
+
+Files such as `.env*`, `*.key`, `*.pem`, SSH private keys, `local_settings.*`,
+`application-prod.*` and `*.local` are still deleted. The configured allow
+suffixes (`.example`, `.sample`, `.template`, `.dist`, `.defaults`) take priority:
+examples survive and their underlying config format is used for masking.
+
+The extra pass handles UTF-8/CP1251 text up to 2 MiB per file/blob. Its path
+classifier excludes vendored code, build output, lockfiles and translations.
+Unsupported formats such as `settings.gradle`, `settings.styl`, `config.sh`,
+`database.sql`, `.rs`, `.tsx` and `.vue` receive only the existing detector passes.
+Binary/NUL-containing, larger or undecodable candidates are skipped by this
+extra pass. Aggregate counters (no original values or paths) are written to
+`artifacts/config_values_working_tree.json` and `artifacts/config_values_history.json`.
+Excluded or unsupported config paths are counted in `skipped_path`;
+history counts unique `(blob, path, mode)` pairs, while working-tree counts include
+convergence visits. A nonzero skip counter requires inspection; these counters
+do not certify absence of secrets in skipped content.
+
+This applies to `sanitize`, `sanitize-batch` and `batch run`, with or without
+`--gate`. Other rulepacks retain the old extra-pass behavior unless they set
+`mask_config_values: true`; omission defaults to `false`.
+
+Update an existing clone before the next run:
+
+```bash
+git pull --ff-only origin main
+uv sync
+cat examples/rules/VERSION  # 1.1.0 or newer
+```
+
+Previously removed configs can only be recovered by sanitizing the **original**
+repository/bundle again. Use a fresh output/state location for that rerun;
+batch state otherwise skips repositories already marked completed.
+
+---
+
 ## Installation
 
 ### Requirements

@@ -67,6 +67,7 @@ class FilterPlan:
     scrub_public_ips: bool = False                             # Pass-1 only (public-IP pass)
     scrub_urls: bool = False                                   # Pass-1 only (non-allowlisted URL-host pass)
     blank_raster_images: bool = False                          # rulepack policy: raster image blobs → white placeholders
+    mask_config_values: bool = False
 
 
 def run_history_rewrite(ctx: RunContext) -> None:
@@ -91,6 +92,7 @@ def run_history_rewrite(ctx: RunContext) -> None:
         scrub_public_ips=True,
         scrub_urls=True,
         blank_raster_images=rulepack.blank_raster_images,
+        mask_config_values=rulepack.mask_config_values,
     )
     if plan.blank_raster_images:
         try:
@@ -557,7 +559,8 @@ def _run_filter_repo(
     script_path = (ctx.artifacts_dir / script_name).resolve()
     script_path.write_text(script, encoding="utf-8")
 
-    cmd = [sys.executable, str(script_path), str(work_dir), ctx.salt.decode()]
+    cmd = [sys.executable, str(script_path), str(work_dir), ctx.salt.decode(),
+           str((ctx.artifacts_dir / "config_values_history.json").resolve())]
     # git-filter-repo parses `git config --list` and may crash on multiline
     # shell helpers from global config; run with isolated config files.
     env = dict(os.environ)
@@ -601,6 +604,7 @@ def _build_filter_script(plan: FilterPlan) -> str:
     scrub_public_ips_repr = repr(bool(plan.scrub_public_ips))
     scrub_urls_repr = repr(bool(plan.scrub_urls))
     blank_images_repr = repr(bool(plan.blank_raster_images))
+    mask_config_repr = repr(bool(plan.mask_config_values))
 
     return textwrap.dedent(
         f'''\
@@ -612,6 +616,9 @@ def _build_filter_script(plan: FilterPlan) -> str:
         rest of out/artifacts; never ship it.
         """
         import sys
+        import json
+        import inspect
+        from pathlib import Path
 
         sys.path.insert(0, {pkg_parent})
 
@@ -621,8 +628,11 @@ def _build_filter_script(plan: FilterPlan) -> str:
             print("git-filter-repo is not installed. Install with: pip install git-filter-repo", file=sys.stderr)
             sys.exit(1)
 
+        if {mask_config_repr} and "file_info_callback" not in inspect.signature(fr.RepoFilter).parameters:
+            raise RuntimeError("mask_config_values requires git-filter-repo >= 2.47.0; run uv sync or upgrade git-filter-repo")
+
         try:
-            from repo_sanitizer.redaction.history_ops import Scrubber
+            from repo_sanitizer.redaction.history_ops import Scrubber, ConfigHistoryScrubber
         except ImportError as exc:
             print(f"repo_sanitizer not importable in filter-repo subprocess: {{exc}}", file=sys.stderr)
             sys.exit(1)
@@ -651,15 +661,25 @@ def _build_filter_script(plan: FilterPlan) -> str:
         args.partial = True
         args.replace_refs = "update-no-add"
 
+        config_scrubber = ConfigHistoryScrubber(scrubber) if {mask_config_repr} else None
+        callbacks = ({{"file_info_callback": config_scrubber.file_info}} if config_scrubber
+                     else {{"blob_callback": scrubber.blob}})
         repo_filter = fr.RepoFilter(
             args,
             name_callback=(scrubber.author_name if scrubber.rewrite_authors else None),
             email_callback=(scrubber.author_email if scrubber.rewrite_authors else None),
             message_callback=scrubber.message,
-            blob_callback=scrubber.blob,
+            # Library callbacks: filename handles deletions (including D
+            # records); file-info transforms surviving original blob IDs.
             filename_callback=scrubber.filename,
+            **callbacks,
         )
         repo_filter.run()
+        if config_scrubber:
+            Path(sys.argv[3]).write_text(json.dumps(config_scrubber.masker.stats, indent=2), encoding="utf-8")
+            print("config_values_history:", config_scrubber.masker.stats)
+            if any(v for k, v in config_scrubber.masker.stats.items() if k.startswith("skipped_")):
+                print("WARNING: config-value masking skipped candidates; inspect config_values_history.json", file=sys.stderr)
         print(scrubber.blank_report())
         print("Filter-repo completed successfully")
         '''

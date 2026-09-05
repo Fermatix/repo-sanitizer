@@ -232,7 +232,7 @@ patterns:
     # app-key / your-… / xxx / 000…) and env-var indirections (`%env(…)%`/`${…}`
     # excluded by the value class; `process.env.X` / `getenv()` / `config()` /
     # `ENV[…]` by the lookahead) — so it does not over-redact or break `%env(…)%`.
-    pattern: '(?i)\b[a-z0-9_.]*(?:passwd|password|pwd|secret|token|api[_-]?key|apikey|access[_-]?key(?:[_-]?id)?|secret[_-]?key|private[_-]?key|passphrase|client[_-]?secret|app[_-]?key|auth[_-]?(?:key|token)|[_.-]salt)\b[''"]?\s*[:=]\s*[''"]?(?!(?:REDACTED_|ANON_PER_|ANON_ORG_|TERM_|Author_|author_|user_[0-9a-f]))(?!(?:null|none|nil|true|false|undefined|changeme|change[_-]?me|your[_-]|example|placeholder|disabled|enabled|process\.env|os\.environ|getenv|env\(|config\(|ENV\[|app[_-](?:id|key|secret)\b|secret\b|password\b|token\b|[*xX]{3,}\b|0{4,}\b)[''"\s,;}#]?)([A-Za-z0-9_./+=:@!#^&*~|-]{5,})'
+    pattern: '(?i)\b[a-z0-9_.]*(?:passwd|password|pwd|secret|token|api[_-]?key|apikey|access[_-]?key(?:[_-]?id)?|secret[_-]?key|private[_-]?key|passphrase|client[_-]?secret|app[_-]?key|auth[_-]?(?:key|token)|[_.-]salt)\b[''"]?\s*[:=]\s*[''"]?(?!(?:REDACTED(?:_|\b)|ANON_PER_|ANON_ORG_|TERM_|Author_|author_|user_[0-9a-f]))(?!(?:null|none|nil|true|false|undefined|changeme|change[_-]?me|your[_-]|example|placeholder|disabled|enabled|process\.env|os\.environ|getenv|env\(|config\(|ENV\[|app[_-](?:id|key|secret)\b|secret\b|password\b|token\b|[*xX]{3,}\b|0{4,}\b)[''"\s,;}#]?)([A-Za-z0-9_./+=:@!#^&*~|-]{5,})'
     category: SECRET
     severity: HIGH
 

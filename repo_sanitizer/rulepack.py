@@ -54,6 +54,7 @@ class Rulepack:
     binary_deny_extensions: list[str] = field(default_factory=list)
     binary_allow_extensions: list[str] = field(default_factory=list)
     blank_raster_images: bool = False        # history rewrite: every raster image blob → white placeholder of the same format/size
+    mask_config_values: bool = False        # opt-in key-name masking; other rulepacks retain their existing behavior
     max_file_mb: int = 20
     ner: NERConfig = field(default_factory=NERConfig)
     extractor: ExtractorConfig = field(default_factory=ExtractorConfig)
@@ -96,6 +97,7 @@ def load_rulepack(path: Path) -> Rulepack:
         binary_deny_extensions=policies.get("binary_deny_extensions", []),
         binary_allow_extensions=policies.get("binary_allow_extensions", []),
         blank_raster_images=bool(policies.get("blank_raster_images", False)),
+        mask_config_values=bool(policies.get("mask_config_values", False)),
         max_file_mb=policies.get("max_file_mb", 20),
         ner=ner,
         extractor=extractor,

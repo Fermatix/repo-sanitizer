@@ -80,7 +80,7 @@ Matching uses the **base name with the allow-suffix stripped**. For example, `.e
 ```yaml
 deny_globs:
   - "**/.env"           # any .env file in any directory
-  - "**/config.*"       # config.yaml, config.prod.json, …
+  - "**/local_settings.*"  # local overrides; base config modules are kept
   - "**/secrets.*"
   - "**/*.key"
   - "**/*.pem"
@@ -93,10 +93,18 @@ deny_globs:
 Suffixes that allow a deny-glob file to be kept and scanned instead of deleted:
 
 ```yaml
-allow_suffixes: [".example", ".sample", ".template", ".dist"]
+allow_suffixes: [".example", ".sample", ".template", ".dist", ".defaults"]
 ```
 
-Example: `config.yaml` → DELETE, but `config.yaml.example` → SCAN.
+Example: `.env` → DELETE, but `.env.example` → SCAN.
+
+### mask_config_values
+
+Set `mask_config_values: true` to enable the additional key-name config-value
+masker in the working tree and throughout history. It is on in the bundled
+rulepack 1.1.0 and defaults to false for rulepacks that omit it. Keep application
+config modules out of `deny_globs` to preserve their structure while masking
+their credentials. See the README for supported paths, limits and skip reports.
 
 ### binary_deny_extensions / binary_allow_extensions
 

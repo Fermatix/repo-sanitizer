@@ -63,6 +63,7 @@ class RunContext:
     # the rewritten tree and fails on any valid→invalid regression (a redaction that
     # broke a JSON/YAML/XML/csproj/TOML file).
     config_parse_pre: dict = field(default_factory=dict)
+    config_values_stats: dict = field(default_factory=dict)
     timings: dict = field(default_factory=dict)
     # Branch topology captured at intake (steps/fetch.py) and the final ref set
     # produced by the ref-reconcile step (steps/ref_reconcile.py). intake_branch_tips

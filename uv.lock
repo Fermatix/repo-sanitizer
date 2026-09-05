@@ -1298,7 +1298,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.110" },
-    { name = "git-filter-repo", specifier = ">=2.38" },
+    { name = "git-filter-repo", specifier = ">=2.47.0" },
     { name = "gliner", specifier = ">=0.2.25" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "pillow", marker = "extra == 'images'", specifier = ">=10" },

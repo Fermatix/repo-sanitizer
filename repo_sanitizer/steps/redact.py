@@ -83,6 +83,31 @@ def run_redact(ctx: RunContext, findings: list[Finding]) -> list[dict]:
 
     ctx.redaction_manifest = all_manifest
 
+    if rulepack.mask_config_values:
+        # Run AFTER applying finding offsets, before the pipeline's post-scan.
+        # The raw-byte write keeps CRLF and legacy encoding intact.
+        from repo_sanitizer.redaction.conf_keys import ConfigMasker, MAX_BLOB
+        masker = ConfigMasker(rulepack.allow_suffixes, ctx.config_values_stats)
+        for item in ctx.inventory:
+            if item.action == FileAction.DELETE or not masker.accepts(item.path):
+                continue
+            path = ctx.work_dir / item.path
+            if path.is_symlink() or not path.is_file():
+                continue
+            if path.stat().st_size > MAX_BLOB:
+                masker.skip_large()
+                continue
+            original = path.read_bytes()
+            masked = masker.mask(original, item.path)
+            if masked != original:
+                path.write_bytes(masked)
+        (ctx.artifacts_dir / "config_values_working_tree.json").write_text(
+            json.dumps(masker.stats, indent=2), encoding="utf-8"
+        )
+        logger.info("Config values (working tree): %s", masker.stats)
+        if any(v for k, v in masker.stats.items() if k.startswith("skipped_")):
+            logger.warning("Config-value masking skipped candidates; inspect config_values_working_tree.json")
+
     artifact_path = ctx.artifacts_dir / "redaction_manifest.json"
     artifact_path.write_text(
         json.dumps(all_manifest, indent=2, ensure_ascii=False),

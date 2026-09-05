@@ -759,19 +759,23 @@ class Scrubber:
         NUL). Skip only when a NUL is present AND the bytes do not decode as UTF-8
         (a real binary / image / compiled artifact)."""
         try:
-            data = blob.data
-            if self._blanker is not None:
-                white = self._blanker.blank(data)
-                if white is not None:
-                    blob.data = white
-                    return
-            if b"\x00" in data[:8192] and not _decodes_as_text(data):
-                return
-            out = self._scrub_nonbrand(data)
-            out = apply_brand_map_bytes(out, self._brands)
-            blob.data = out
+            blob.data = self.scrub_bytes(blob.data)
         except Exception:
             pass
+
+    def scrub_bytes(self, data: bytes) -> bytes:
+        """Shared content transform for blob and path-aware file callbacks.
+
+        The legacy blob callback keeps its exception behavior. The new config
+        callback calls this directly so a failed transformation fails the run.
+        """
+        if self._blanker is not None:
+            white = self._blanker.blank(data)
+            if white is not None:
+                return white
+        if b"\x00" in data[:8192] and not _decodes_as_text(data):
+            return data
+        return apply_brand_map_bytes(self._scrub_nonbrand(data), self._brands)
 
     def blank_report(self) -> str:
         """One line for the rewrite log: how many raster image blobs became white placeholders."""
@@ -803,3 +807,38 @@ class Scrubber:
         if self.should_remove_path(path):
             return b""
         return apply_brand_map_bytes(path, self._brands)
+
+
+class ConfigHistoryScrubber:
+    """Path-aware content callback for the opt-in config-values pass.
+
+    Used with the existing filename callback (also handles deletion records),
+    but WITHOUT a blob callback: filter-repo exports original object IDs and
+    its file-info helper reads original bytes through one cat-file process.
+    Cache only result IDs, never whole repositories' contents in memory.
+    """
+
+    def __init__(self, scrubber: Scrubber):
+        from repo_sanitizer.redaction.conf_keys import ConfigMasker
+        self.scrubber = scrubber
+        self.masker = ConfigMasker(scrubber._allow_suffixes)
+        self._cache: dict[tuple[bytes, bytes, bytes], object] = {}
+
+    def file_info(self, filename, mode, blob_id, value):
+        # A gitlink points to a commit, not a blob. Symlink target text still
+        # gets the legacy scrub, but is never interpreted as config contents.
+        if mode == b"160000":
+            return filename, mode, blob_id
+        key = (blob_id, filename, mode)
+        if key not in self._cache:
+            original = value.get_contents_by_identifier(blob_id)
+            if original is None:
+                raise RuntimeError("Cannot read history blob for config-value redaction")
+            data = original
+            if mode in (b"100644", b"100755"):
+                data = self.masker.mask(data, filename.decode("utf-8", "surrogateescape"))
+            data = self.scrubber.scrub_bytes(data)
+            self._cache[key] = (
+                value.insert_file_with_contents(data) if data != original else blob_id
+            )
+        return filename, mode, self._cache[key]

@@ -136,7 +136,7 @@ def test_run_scan_structural_brand_detection(tmp_path):
 
 @requires_tools
 def test_forbidden_files_deleted(tmp_path, sample_repo_git):
-    """config.prod.yaml, .mailmap, CODEOWNERS must not exist in work tree after redact."""
+    """Config modules survive; git identity files are still removed."""
     from repo_sanitizer.pipeline import run_sanitize
 
     out_dir = tmp_path / "out"
@@ -147,7 +147,7 @@ def test_forbidden_files_deleted(tmp_path, sample_repo_git):
         salt_env="REPO_SANITIZER_SALT",
     )
     work = out_dir / "work"
-    assert not (work / "config.prod.yaml").exists(), "config.prod.yaml should be deleted"
+    assert (work / "config.prod.yaml").is_file(), "config.prod.yaml should be kept"
     assert not (work / ".mailmap").exists(), ".mailmap should be deleted"
     assert not (work / "CODEOWNERS").exists(), "CODEOWNERS should be deleted"
 

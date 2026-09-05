@@ -68,12 +68,12 @@ for glob_pat in deny_globs:
         break
 ```
 
-The default rulepack includes 81 deny_globs covering:
+The default rulepack's deny globs cover:
 
 | Category | Examples |
 |---|---|
 | Environment files | `.env`, `.env.*` |
-| Generic config | `config.*`, `settings.*`, `application.*`, `appsettings.*` |
+| Environment-specific overlays | `application-prod.*`, `local_settings.*`, `*.local` |
 | Cryptographic material | `*.key`, `*.pem`, `*.crt`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore` |
 | SSH keys | `id_rsa`, `id_ed25519`, `id_ecdsa`, `id_dsa`, `id_rsa.pub` |
 | Cloud credentials | `.boto`, `*.token`, `service-account.json`, `*gcp*.json`, `credentials.json` |
@@ -82,6 +82,15 @@ The default rulepack includes 81 deny_globs covering:
 | Terraform | `*.tfvars`, `terraform.tfstate`, `terraform.tfstate.backup` |
 | Ansible | `vault.yml`, `vault.yaml` |
 | Certificate stores | `truststore.*`, `cacerts` |
+
+### mask_config_values
+
+Boolean, default `false` when omitted; enabled in `examples/rules` since 1.1.0.
+Keeps config modules while masking literal sensitive values by key name in the
+working tree and all shipped history. Deny globs still take precedence over
+content masking, subject to `allow_suffixes`. This is a redaction setting, not
+a gate: it works with `--no-gate` too. See the README's config section for path
+exclusions, the 2 MiB UTF-8/CP1251 limit and aggregate skip reports.
 
 ### allow_suffixes
 
