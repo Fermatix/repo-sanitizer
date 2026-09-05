@@ -613,3 +613,28 @@ def test_svg_blob_keeps_ipv4_shaped_path_data():
     txt = b"upstream 45.33.32.156\n"
     out = scr._scrub_nonbrand(txt)
     assert b"45.33.32.156" not in out and b"REDACTED_IPV4_" in out
+
+
+# ── XML credential carriers (rulepack 1.5.13): value-only mask, structure kept ────────────
+
+_XML_DEFS = [
+    ("xml_secret_element", r'(?i)<(?:password|passphrase|private[-_]?key|deploy[-_]?token)>\s*(?!REDACTED_)([^<\s]{6,})\s*</(?:password|passphrase|private[-_]?key|deploy[-_]?token)>', []),
+    ("xml_secret_property", r'(?i)<name>\s*[\w.-]*(?:token|secret|password)[\w.-]*\s*</name>\s*<value>\s*(?!REDACTED_)([^<\s]{6,})\s*</value>', []),
+    ("xml_secret_attribute", r'(?i)<(?:add|property)\s+(?:key|name)="[\w.-]*(?:password|token)[\w.-]*"\s+value="(?!REDACTED_)([^"\s]{6,})"', []),
+]
+
+
+def test_xml_secret_carriers_mask_only_the_value():
+    scr = Scrubber(SALT, pii_pattern_defs=_XML_DEFS)
+    out = scr.message(b"<server><id>gitlab</id><username>deploy</username><password>s3cretPa55</password></server>")
+    assert b"s3cretPa55" not in out and b"<password>REDACTED_" in out and b"</password></server>" in out
+    out = scr.message(b"<property>\n  <name>Private-Token</name>\n  <value>glxyzDeployToken77</value>\n</property>")
+    assert b"glxyzDeployToken77" not in out and b"<name>Private-Token</name>" in out and b"<value>REDACTED_" in out
+    out = scr.message(b'<add key="ClearTextPassword" value="nugetFeedPw99" />')
+    assert b"nugetFeedPw99" not in out and b'key="ClearTextPassword" value="REDACTED_' in out
+    # templates and non-secret elements are left alone; the mask is idempotent
+    keep = b"<password>${env.MVN_PW}</password> <name>Content-Type</name><value>application/json</value>"
+    assert scr.message(keep) == keep
+    once = scr.message(b"<password>s3cretPa55</password>")
+    assert scr.message(once) == once
+

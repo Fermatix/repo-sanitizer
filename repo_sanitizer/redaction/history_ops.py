@@ -72,7 +72,13 @@ _URL_ENDPOINT_NAMES = frozenset({
 #  * Grouped secret patterns whose match wraps the secret VALUE in keyword + quotes
 #    (apiKey = "VALUE", AWS_SECRET_ACCESS_KEY=VALUE) → replace ONLY the captured
 #    value group, keeping the surrounding declaration intact (and skip templates).
-_GROUPED_SECRET_NAMES = frozenset({"generic_api_key", "aws_secret_key", "config_assignment_secret"})
+_GROUPED_SECRET_NAMES = frozenset({
+    "generic_api_key", "aws_secret_key", "config_assignment_secret",
+    # XML credential carriers (Maven settings.xml <password>/<passphrase>/httpHeaders name+value, NuGet.config
+    # <add key="ClearTextPassword" value=…>, Ant/Spring <property name=… value=…>): the element/attribute stays, the
+    # value becomes REDACTED_<hash> (rulepack 1.5.13 — a cleartext deploy token shipped in every commit of 7d703873).
+    "xml_secret_element", "xml_secret_property", "xml_secret_attribute",
+})
 #  * credit_card → mask only if the digit run passes the Luhn checksum; a 16-digit
 #    float / Unity fileID / model weight that merely looks card-shaped is left
 #    intact (it is numeric DATA, masking it breaks the asset/model/JSON).
