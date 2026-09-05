@@ -83,6 +83,7 @@ _GROUPED_SECRET_NAMES = frozenset({
     # <add key="ClearTextPassword" value=…>, Ant/Spring <property name=… value=…>): the element/attribute stays, the
     # value becomes REDACTED_<hash> (rulepack 1.5.13 — a cleartext deploy token shipped in every commit of 7d703873).
     "xml_secret_element", "xml_secret_property", "xml_secret_attribute",
+    "android_meta_data_secret",   # <meta-data android:name="…API_KEY" android:value="…"/> (1d4ed640)
 })
 #  * credit_card → mask only if the digit run passes the Luhn checksum; a 16-digit
 #    float / Unity fileID / model weight that merely looks card-shaped is left

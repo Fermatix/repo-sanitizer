@@ -650,3 +650,12 @@ def test_https_url_pattern_masks_the_host_only_and_keeps_public_hosts():
     assert b"https://schema.phpunit.de/9.3/phpunit.xsd" in out
     assert b"REDACTED_HTTPS_URL" not in out
 
+
+def test_android_manifest_meta_data_value_masked_only():
+    defs = [("android_meta_data_secret", r'(?is)<meta-data\s+android:name="[^"]*(?:api[_.]?key|apikey|secret|token)[^"]*"\s+android:value="(?!@string/|\$\{|REDACTED_)([^"\s]{12,})"', [])]
+    scr = Scrubber(SALT, pii_pattern_defs=defs)
+    out = scr.message(b'<meta-data android:name="io.crash.sdk.API_KEY" android:value="a1b2c3d4e5f6g7h8i9j0" />')
+    assert b"a1b2c3d4e5f6g7h8i9j0" not in out and b'android:name="io.crash.sdk.API_KEY" android:value="REDACTED_' in out
+    keep = b'<meta-data android:name="io.crash.sdk.API_KEY" android:value="@string/crash_key" />'
+    assert scr.message(keep) == keep
+
