@@ -148,7 +148,11 @@ def is_dotted_version(value: str) -> bool:
 # resolution. Skip a dotted quad whose CURRENT FIELD is a version context.
 _VERSION_CTX_RE = re.compile(
     r"(?i)(version|assembly|<reference|packagereference|packageref|targetframework"
-    r"|runtimeversion|frameworkversion|\bver\b|v\s*=|mscorlib|netstandard|netcoreapp)"
+    r"|runtimeversion|frameworkversion|\bver\b|v\s*=|mscorlib|netstandard|netcoreapp"
+    # a dependency PIN right before the quad: `clickhouse-cityhash==1.0.2.3` (requirements.txt, c9c2f50c → pip install
+    # broken), `~=` / `>=` / `<=` / `!=`, Gemfile.lock / Podfile.lock `name (7.0.4.3)` / `(= 7.0.4.3)` / `(~> 7.0.4.3)`,
+    # `pkg@1.2.3.4`; the rulepack `ipv4` pattern carries the same guards, this pass has its own regex
+    r"|[=~<>!]=\s*\Z|\A=\s*\Z|\(\s*(?:[=~<>!]+\s*)?\Z|@\Z)"   # `\A=`: `>=` — the `>` is a field-closing delimiter, only `=` survives the cut
 )
 # Delimiters that END a value/field — the version keyword must be in the SAME field
 # as the quad (so a `Version="x")] ... bind <IP>` does not falsely protect the IP).

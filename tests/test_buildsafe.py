@@ -232,3 +232,17 @@ def test_no_bracket_markers_emitted(pii_defs):
     for marker in (b"[ipv4:", b"[ipv6:", b"[db_connection", b"[jdbc_url:",
                    b"[generic_api_key:", b"[secret_url_param:", b"[internal_corp_url:"):
         assert marker not in out, f"build-breaking marker {marker!r} still emitted"
+
+
+def test_dependency_pins_are_version_context():
+    """c9c2f50c: `clickhouse-cityhash==1.0.2.3` in requirements.txt became a doc-range IP (pip install broken); the same
+    for Gemfile.lock / Podfile.lock parenthesised pins and `pkg@1.2.3.4`. A bare deployment IP is still not a version."""
+    from repo_sanitizer.buildsafe import in_version_context
+    for text in ("clickhouse-cityhash==1.0.2.3", "pkg~=1.0.2.3", "pkg>=1.0.2.3", "    activesupport (7.0.4.3)",
+                 "      railties (~> 6.1.7.2)", "      actionpack (= 6.1.7.2)", "  - AFNetworking (4.0.1.2):", "npm:foo@1.2.3.4"):
+        start = text.index(next(ch for ch in text if ch.isdigit()))
+        assert in_version_context(text, start), text
+    for text in ("host = 52.14.226.9", "ping 52.14.226.9", "server: 52.14.226.9", "http://52.14.226.9/x"):
+        start = text.index("52.")
+        assert not in_version_context(text, start), text
+
