@@ -601,3 +601,15 @@ def test_literal_scrubber_matches_the_per_literal_path_and_is_linear():
     t0 = time.perf_counter(); out = scr.apply(big); dt = time.perf_counter() - t0
     assert b"7000000042" not in out and b"secret_7_x" not in out and b"9999999999" in out and b"orderREDACTED_" in out
     assert dt < 5.0, f"one pass per class must stay linear: {dt:.2f}s for 22k literals over 1.6 MB"
+
+
+def test_svg_blob_keeps_ipv4_shaped_path_data(pii_defs):
+    """15e13bdb: 2,153 REDACTED_IPV4_* markers inside the path data of 12 SVG icons — glued decimals, not addresses.
+    A pattern excluded for *.svg in the rulepack is skipped on blobs that look like SVG; other blobs are unchanged."""
+    defs = [(n, p, ["*.svg"] if n in ("ipv4", "ipv4_with_port") else []) for n, p in pii_defs]
+    scr = Scrubber(SALT, pii_pattern_defs=defs)
+    svg = b'<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg"><path d="M12.5.7.3.9 4.2 45.33.32.156 8"/></svg>'
+    assert scr._scrub_nonbrand(svg) == svg
+    txt = b"upstream 45.33.32.156\n"
+    out = scr._scrub_nonbrand(txt)
+    assert b"45.33.32.156" not in out and b"REDACTED_IPV4_" in out

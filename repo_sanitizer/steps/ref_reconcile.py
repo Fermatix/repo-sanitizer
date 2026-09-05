@@ -161,7 +161,7 @@ def _build_name_scrubber(ctx: RunContext, brand_map_rows: list | None) -> Scrubb
                 secrets.add(val)
     return Scrubber(
         ctx.salt,
-        pii_pattern_defs=[(p.name, p.pattern.pattern) for p in rulepack.pii_patterns],
+        pii_pattern_defs=[(p.name, p.pattern.pattern, list(p.exclude_globs)) for p in rulepack.pii_patterns],
         secret_literals=sorted(secrets),
         person_literals=_collect_person_literals(ctx),
         keep=sorted(keep),

@@ -22,6 +22,20 @@ _KEEPABLE_CONN_STRING_NAMES = frozenset({
     "db_connection_postgresql", "db_connection_mysql", "db_connection_mongodb",
     "db_connection_redis", "db_connection_amqp", "jdbc_url",
 })
+def pattern_excluded(globs, file_path: str) -> bool:
+    """Is `file_path` covered by one of the pattern's exclude_globs? A history-scan virtual path
+    (`<history:abcdef12/icons/x.svg>`) is reduced to its real path first; each glob is matched against the
+    full path and the basename, case-insensitively (2026-09-05: ipv4 inside SVG path data, 15e13bdb)."""
+    import fnmatch
+    path = file_path or ""
+    if path.startswith("<history:"):
+        path = path[len("<history:"):].rstrip(">")
+        path = path.split("/", 1)[1] if "/" in path else path
+    low = path.lower()
+    base = low.rsplit("/", 1)[-1]
+    return any(fnmatch.fnmatch(low, g.lower()) or fnmatch.fnmatch(base, g.lower()) for g in globs)
+
+
 _CONN_HOST_RE = re.compile(r"^[a-z][\w+.\-]*://(?:[^/@\s]*@)?(\[[0-9A-Fa-f:.]+\]|[^/:\s?#]+)", re.IGNORECASE)
 
 
@@ -35,6 +49,8 @@ class RegexPIIDetector(Detector):
     def detect(self, target: ScanTarget) -> list[Finding]:
         findings = []
         for pat in self.patterns:
+            if pat.exclude_globs and pattern_excluded(pat.exclude_globs, target.file_path):
+                continue
             for m in pat.pattern.finditer(target.content):
                 start, end = m.start(), m.end()
                 if not self._in_zones(target, start, end):

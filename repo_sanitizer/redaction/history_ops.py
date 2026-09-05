@@ -106,6 +106,14 @@ def _hash12s(salt: bytes, value: str, length: int = 12) -> str:
     return hmac.new(salt, value.encode("utf-8"), "sha256").hexdigest()[:length]
 
 
+_SVG_HEAD_RE = re.compile(rb"<svg[\s>]", re.IGNORECASE)
+
+
+def _looks_like_svg(data: bytes) -> bool:
+    """An SVG document: `<svg` tag within the first 4 KB (after an optional BOM / XML prolog / DOCTYPE / comments)."""
+    return _SVG_HEAD_RE.search(data[:4096]) is not None
+
+
 def _decodes_as_text(data: bytes) -> bool:
     """True if ``data`` decodes as UTF-8 (a NUL is valid UTF-8, so a NUL-bearing
     source file passes; a real binary's invalid byte sequences fail). Tells a
@@ -464,7 +472,14 @@ class Scrubber:
         # the (decoded) scan but never REDACTING it in history. These compile as STR
         # regexes and run over DECODED text (utf-8 → cp1251) in _scrub_nonbrand.
         self._decoded_pii_res: list[tuple[str, re.Pattern]] = []  # str-mode → REDACTED_<NAME>_<hash>
-        for name, pattern in (pii_pattern_defs or []):
+        # rulepack `exclude_globs`: the blob callback knows no path, but an SVG blob is recognisable by content, so a
+        # pattern excluded for "*.svg" is skipped on SVG blobs (ipv4 inside path data, 15e13bdb: 2,153 markers in 12 icons)
+        self._svg_skip_names: set[bytes] = set()
+        for item in (pii_pattern_defs or []):
+            name, pattern = item[0], item[1]
+            globs = list(item[2]) if len(item) > 2 and item[2] else []
+            if any(g.lower().endswith(".svg") for g in globs):
+                self._svg_skip_names.add(name.encode())
             # A non-ASCII (Cyrillic) pattern source must be matched in str mode.
             if not pattern.isascii():
                 try:
@@ -559,7 +574,10 @@ class Scrubber:
         for name, rx in self._luhn_res:
             data = rx.sub(lambda m, _n=name: self._mask_if_luhn(m, _n), data)
         # Remaining PII/secret patterns → identifier-safe token (no "[…]" marker).
+        is_svg = bool(self._svg_skip_names) and _looks_like_svg(data)
         for name, rx in self._other_pii:
+            if is_svg and name in self._svg_skip_names:
+                continue
             data = rx.sub(
                 lambda m, _n=name: b"REDACTED_" + _n.upper() + b"_"
                 + hash12(self.salt, m.group()[:64]).encode(),

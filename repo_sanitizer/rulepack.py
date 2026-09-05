@@ -14,6 +14,8 @@ class PIIPattern:
     pattern: re.Pattern
     category: str
     severity: str
+    exclude_globs: tuple[str, ...] = ()   # file globs where this pattern is NOT applied (e.g. "*.svg" for ipv4:
+                                          # four glued decimals in path data are coordinates, not an address)
 
 
 @dataclass
@@ -156,6 +158,7 @@ def _load_pii_patterns(path: Path) -> list[PIIPattern]:
                 pattern=re.compile(item["pattern"]),
                 category=item.get("category", "PII"),
                 severity=item.get("severity", "HIGH"),
+                exclude_globs=tuple(str(g) for g in (item.get("exclude_globs") or [])),
             )
         )
     return patterns

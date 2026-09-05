@@ -80,7 +80,7 @@ def run_history_rewrite(ctx: RunContext) -> None:
     _brand_terms, keep = build_brand_terms(rulepack)
     plan = FilterPlan(
         rewrite_authors=True,
-        pii_pattern_defs=[(p.name, p.pattern.pattern) for p in rulepack.pii_patterns],
+        pii_pattern_defs=[(p.name, p.pattern.pattern, list(p.exclude_globs)) for p in rulepack.pii_patterns],
         secret_literals=_collect_secret_literals(ctx),
         person_literals=_collect_person_literals(ctx),
         brand_map_rows=[],

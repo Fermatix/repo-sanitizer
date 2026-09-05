@@ -696,3 +696,22 @@ def test_endpoint_still_flags_public_ipv6_with_letters_only_groups():
     content = "peer = 2a02:6b8::feed:0ff\n"     # has digits → a real address
     findings = EndpointDetector().detect(ScanTarget(file_path="t.txt", content=content))
     assert any(f.matched_value == "2a02:6b8::feed:0ff" for f in findings)
+
+
+# ── exclude_globs (2026-09-05): ipv4 is not applied inside SVG ─────────────────────────────
+
+def _ipv4_only(rulepack):
+    from repo_sanitizer.rulepack import PIIPattern
+    pats = [p for p in rulepack.pii_patterns if p.name == "ipv4"]
+    assert pats and "*.svg" in pats[0].exclude_globs
+    return RegexPIIDetector(pats)
+
+
+def test_ipv4_pattern_skips_svg_files(rulepack):
+    det = _ipv4_only(rulepack)
+    svg = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M12.5.7.3.9 4.2 45.33.32.156"/></svg>'
+    assert det.detect(ScanTarget(file_path="icons/logo.svg", content=svg)) == []
+    assert det.detect(ScanTarget(file_path="<history:abcdef12/assets/icons/logo.svg>", content=svg)) == []
+    assert det.detect(ScanTarget(file_path="Icons/LOGO.SVG", content=svg)) == []
+    hits = det.detect(ScanTarget(file_path="conf/hosts.txt", content="upstream 45.33.32.156"))
+    assert len(hits) == 1
