@@ -700,15 +700,16 @@ def test_endpoint_still_flags_public_ipv6_with_letters_only_groups():
 
 # ── exclude_globs (2026-09-05): ipv4 is not applied inside SVG ─────────────────────────────
 
-def _ipv4_only(rulepack):
+def _ipv4_only():
+    import re
     from repo_sanitizer.rulepack import PIIPattern
-    pats = [p for p in rulepack.pii_patterns if p.name == "ipv4"]
-    assert pats and "*.svg" in pats[0].exclude_globs
-    return RegexPIIDetector(pats)
+    pat = PIIPattern(name="ipv4", pattern=re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"), category="PII", severity="MEDIUM",
+                     exclude_globs=("*.svg",))
+    return RegexPIIDetector([pat])
 
 
-def test_ipv4_pattern_skips_svg_files(rulepack):
-    det = _ipv4_only(rulepack)
+def test_ipv4_pattern_skips_svg_files():
+    det = _ipv4_only()
     svg = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M12.5.7.3.9 4.2 45.33.32.156"/></svg>'
     assert det.detect(ScanTarget(file_path="icons/logo.svg", content=svg)) == []
     assert det.detect(ScanTarget(file_path="<history:abcdef12/assets/icons/logo.svg>", content=svg)) == []
