@@ -156,6 +156,30 @@ UNIVERSAL_URL_HOSTS = frozenset({
     "slack.com", "discord.com", "discord.gg", "discordapp.com",
     "figma.com", "gravatar.com",
     "yandex.ru", "ya.ru", "yandex.com",  # fixed Yandex service hosts (mail/metrika/disk); NOT yandexcloud.net
+    # 2026-09-05: aligned with rulepack/regex/pii_patterns.yaml `https_url` (1.5.8/1.5.9) — a host the pattern
+    # spares must not be host-masked here either, or the artifact still breaks: www.apple.com/DTDs in every
+    # plist (50218c4b), files.pythonhosted.org in uv.lock (3b8751ea), docs/CDN/spec hosts. SINGLE-TENANT only.
+    "apple.com", "mozilla.org", "gnu.org", "opensource.org", "creativecommons.org", "python.org",
+    "nodejs.org", "jquery.com", "fontawesome.com", "sil.org", "xmlsoap.org", "openxmlformats.org",
+    "springframework.org", "sun.com", "oracle.com", "docbook.org", "jetbrains.com", "fonts.googleapis.com",
+    "redis.io", "postgresql.org", "nginx.org", "nginx.com", "pypa.io", "djangoproject.com",
+    "palletsprojects.com", "sqlalchemy.org", "pydantic.dev", "pytest.org", "shadcn.com", "tradingview.com",
+    "kubernetes.io", "helm.sh", "rust-lang.org", "rustup.rs", "docs.rs", "laravel.com", "vuejs.org",
+    "react.dev", "reactjs.org", "angular.io", "tailwindcss.com", "getbootstrap.com", "swagger.io",
+    "openapis.org", "stackoverflow.com", "wikipedia.org", "flutter.dev", "dart.dev", "pub.dev",
+    "1c-bitrix.ru", "yastatic.net", "ietf.org", "iana.org", "unicode.org", "whatwg.org",
+    "ecma-international.org", "typescriptlang.org", "eslint.org", "prettier.io", "babeljs.io",
+    "webpack.js.org", "vitejs.dev", "jestjs.io",
+})
+
+# EXACT hosts (no subdomain match): their PARENT domain is multi-tenant, so only this one host is kept —
+# storage.yandexcloud.net serves the public CA.pem every Dockerfile wgets, but <bucket>.storage.yandexcloud.net
+# is a customer bucket; www/oauth2.googleapis.com carry OAuth scope ids the auth code compares literally, but
+# <bucket>.storage.googleapis.com is a customer bucket. Same set as the rulepack pattern's exact-host group.
+EXACT_URL_HOSTS = frozenset({
+    "storage.yandexcloud.net", "ajax.googleapis.com", "www.googleapis.com", "oauth2.googleapis.com",
+    "accounts.google.com", "apis.google.com", "connect.facebook.net", "graph.facebook.com",
+    "js.stripe.com", "api.stripe.com",
 })
 
 
@@ -187,7 +211,7 @@ def _is_kept_url_host(host: str, keep: set[str]) -> bool:
     # UNIVERSAL_URL_HOSTS, so they fall through here and get masked.
     if any(h == s or h.endswith("." + s) for s in UNIVERSAL_URL_HOSTS):
         return True
-    return False
+    return h in EXACT_URL_HOSTS
 
 
 def _is_public_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
