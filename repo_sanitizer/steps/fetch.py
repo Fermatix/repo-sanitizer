@@ -102,6 +102,36 @@ def _verify_git_bundle(bundle_path: Path) -> None:
         )
 
 
+def _checkout_tolerant(dest: Path) -> int:
+    """Populate the worktree of a ``--no-checkout`` clone, skipping paths the filesystem cannot create.
+
+    A file name committed as cp1251 bytes from Windows is not valid UTF-8; APFS / HFS+ refuse it
+    (``Illegal byte sequence``) and a plain ``git clone`` aborts at checkout — 5722436f (1 of 2549 paths)
+    and 331e7ea0 (371 paths) were unprocessable on every macOS worker. Such paths are excluded through a
+    non-cone sparse-checkout; their blobs stay in history and are scanned / rewritten / deleted there like
+    any other, only the worktree (the inventory scan) lacks them. Returns the number of skipped paths."""
+    listed = subprocess.run(["git", "ls-tree", "-r", "-z", "--name-only", "HEAD"], cwd=str(dest), capture_output=True)
+    bad: list[bytes] = []
+    for raw in listed.stdout.split(b"\0"):
+        if not raw:
+            continue
+        try:
+            raw.decode("utf-8")
+        except UnicodeDecodeError:
+            bad.append(raw)
+    if bad:
+        info = dest / ".git" / "info"
+        info.mkdir(parents=True, exist_ok=True)
+        (info / "sparse-checkout").write_bytes(b"/*\n" + b"".join(b"!/" + raw + b"\n" for raw in bad))
+        subprocess.run(["git", "config", "core.sparseCheckout", "true"], cwd=str(dest), check=True, **_TEXT)
+        subprocess.run(["git", "config", "core.sparseCheckoutCone", "false"], cwd=str(dest), check=True, **_TEXT)
+        logger.warning("%d path(s) with non-UTF-8 names skipped in the worktree (kept in history)", len(bad))
+    result = subprocess.run(["git", "checkout", "-q", "--", "."], cwd=str(dest), **_TEXT)
+    if result.returncode != 0:                       # unborn / detached HEAD in an odd bundle: best effort
+        subprocess.run(["git", "checkout", "-q", "--force", "HEAD"], cwd=str(dest), **_TEXT)
+    return len(bad)
+
+
 def fetch(ctx: RunContext, source: str) -> None:
     """Clone or copy the source repository into work_dir."""
     source_path = Path(source)
@@ -113,8 +143,9 @@ def fetch(ctx: RunContext, source: str) -> None:
     if source_path.is_dir() and (source_path / ".git").is_dir():
         logger.debug("Cloning local repository %s → %s", source, dest)
         _run_git(
-            ["clone", "--no-hardlinks", "--no-single-branch", str(source_path), str(dest)]
+            ["clone", "--no-hardlinks", "--no-single-branch", "--no-checkout", str(source_path), str(dest)]
         )
+        _checkout_tolerant(dest)
         _fetch_all_refs(dest)
         materialize_local_branches(dest)
     elif source.startswith("http://") or source.startswith("https://") or source.startswith("git@"):
@@ -124,16 +155,18 @@ def fetch(ctx: RunContext, source: str) -> None:
         # when none are configured and a terminal is attached, instead of
         # hanging behind captured output.
         _run_git(
-            ["clone", "--no-single-branch", source, str(dest)],
+            ["clone", "--no-single-branch", "--no-checkout", source, str(dest)],
             allow_prompt=True,
         )
+        _checkout_tolerant(dest)
         _fetch_all_refs(dest, allow_prompt=True)
         materialize_local_branches(dest)
     elif source_path.is_file():
         # A git bundle (e.g. a Pass-1 sanitized.bundle) — clone it like a repo.
         logger.debug("Cloning git bundle %s → %s", source, dest)
         _verify_git_bundle(source_path)
-        _run_git(["clone", "--no-single-branch", str(source_path), str(dest)])
+        _run_git(["clone", "--no-single-branch", "--no-checkout", str(source_path), str(dest)])
+        _checkout_tolerant(dest)
         _fetch_all_refs(dest)
         materialize_local_branches(dest)
     elif source_path.is_dir():

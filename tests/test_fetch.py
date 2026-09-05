@@ -169,3 +169,29 @@ def test_fetch_with_rev_keeps_all_branches(tmp_path: Path, rules_path: Path):
     heads = _local_heads(ctx.work_dir)
     assert {"main", "feature", "bugfix"}.issubset(heads)
 
+
+def test_fetch_tolerates_a_file_name_the_filesystem_cannot_create(tmp_path: Path, rules_path: Path):
+    """5722436f / 331e7ea0: paths committed as cp1251 bytes are not valid UTF-8; APFS refuses them and a plain clone
+    aborted at checkout, so the repos were unprocessable on macOS. The clone now excludes them via a sparse-checkout;
+    they stay in history, the rest of the worktree is populated."""
+    src = tmp_path / "src"
+    src.mkdir()
+    _run(["git", "init", "-q", "-b", "main"], src)
+    (src / "README.md").write_text("ok\n")
+    _run(["git", "add", "README.md"], src)
+    blob = subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=src, input=b"doc", capture_output=True, check=True).stdout.strip().decode()
+    bad = "docs/Постановка.docx".encode("cp1251")
+    subprocess.run([b"git", b"update-index", b"--add", b"--cacheinfo", f"100644,{blob},".encode() + bad], cwd=src, check=True)
+    _run(["git", "-c", "user.name=t", "-c", "user.email=t@x", "commit", "-q", "-m", "init"], src)
+    ctx = RunContext.create(source=str(src), out_dir=tmp_path / "out", rulepack_path=rules_path, salt_env="REPO_SANITIZER_SALT")
+    fetch(ctx, str(src))
+    assert (ctx.work_dir / "README.md").read_text() == "ok\n"
+    names = subprocess.run(["git", "ls-tree", "-r", "-z", "--name-only", "HEAD"], cwd=ctx.work_dir, capture_output=True).stdout
+    assert bad in names and b"README.md" in names          # history intact, only the worktree skips the file
+    # the same through a bundle (the Pass-2 / verification path)
+    bundle = tmp_path / "b.bundle"
+    _run(["git", "bundle", "create", str(bundle), "--branches", "HEAD"], src)
+    ctx2 = RunContext.create(source=str(bundle), out_dir=tmp_path / "out2", rulepack_path=rules_path, salt_env="REPO_SANITIZER_SALT")
+    fetch(ctx2, str(bundle))
+    assert (ctx2.work_dir / "README.md").read_text() == "ok\n"
+
