@@ -85,6 +85,10 @@ _GROUPED_SECRET_NAMES = frozenset({
     "xml_secret_element", "xml_secret_property", "xml_secret_attribute",
     "android_meta_data_secret",   # <meta-data android:name="…API_KEY" android:value="…"/> (1d4ed640)
 })
+#  * wp_salt (WordPress define('AUTH_KEY', '…') key/salt block, rulepack 1.5.25) → value only, like the grouped
+#    secrets, but WITHOUT the template check: a 64-char salt is random punctuation (`{`, `}`, `$`, `%`, `<`) that
+#    is_template() reads as a placeholder, so 5 of 8 constants shipped live in 69d097e9 / 0d4692eb.
+_RAW_GROUPED_NAMES = frozenset({"wp_salt"})
 #  * credit_card → mask only if the digit run passes the Luhn checksum; a 16-digit
 #    float / Unity fileID / model weight that merely looks card-shaped is left
 #    intact (it is numeric DATA, masking it breaks the asset/model/JSON).
@@ -475,6 +479,7 @@ class Scrubber:
         self._phone_res: list[re.Pattern] = []
         self._url_endpoint_res: list[re.Pattern] = []           # host-mask, template-skip
         self._grouped_secret_res: list[re.Pattern] = []         # mask group(1) only
+        self._raw_grouped_res: list[re.Pattern] = []            # mask group(1) only, no template check (wp_salt)
         self._secret_url_re: Optional[re.Pattern] = None        # keep "?name=", mask value
         self._luhn_res: list[tuple[bytes, re.Pattern]] = []     # mask only if Luhn-valid
         self._other_pii: list[tuple[bytes, re.Pattern]] = []    # REDACTED_<NAME>_<hash>
@@ -513,6 +518,8 @@ class Scrubber:
                 self._secret_url_re = rx
             elif name in _GROUPED_SECRET_NAMES:
                 self._grouped_secret_res.append(rx)
+            elif name in _RAW_GROUPED_NAMES:
+                self._raw_grouped_res.append(rx)
             elif name in _LUHN_NAMES:
                 self._luhn_res.append((name.encode(), rx))
             else:
@@ -583,6 +590,8 @@ class Scrubber:
         # Grouped secrets (apiKey="VALUE"): mask the captured value group only.
         for rx in self._grouped_secret_res:
             data = rx.sub(self._mask_grouped, data)
+        for rx in self._raw_grouped_res:
+            data = rx.sub(lambda m: self._mask_grouped(m, template_check=False), data)
         # Secret URL param (?token=VALUE): keep "?name=", mask the value only.
         if self._secret_url_re is not None:
             data = self._secret_url_re.sub(self._mask_url_param, data)
@@ -666,19 +675,21 @@ class Scrubber:
             return b"REDACTED_" + name.upper() + b"_" + hash12(self.salt, raw[:64]).encode()
         return raw
 
-    def _mask_grouped(self, m: "re.Match[bytes]") -> bytes:
+    def _mask_grouped(self, m: "re.Match[bytes]", template_check: bool = True) -> bytes:
         """Replace ONLY the captured secret value (group 1) with REDACTED_<hash>,
         leaving the surrounding declaration (keyword, quotes, assignment) intact so
-        the file still parses/compiles. Templates are left untouched."""
+        the file still parses/compiles. Templates are left untouched (unless the
+        pattern is a raw-grouped one whose values are random punctuation, wp_salt)."""
         whole = m.group(0)
         if m.lastindex is None or m.group(1) is None:
             return whole
         val = m.group(1)
-        try:
-            if is_template(val.decode("utf-8")):
-                return whole
-        except UnicodeDecodeError:
-            pass
+        if template_check:
+            try:
+                if is_template(val.decode("utf-8")):
+                    return whole
+            except UnicodeDecodeError:
+                pass
         s, e = m.start(1) - m.start(0), m.end(1) - m.start(0)
         return whole[:s] + b"REDACTED_" + hash12(self.salt, val).encode() + whole[e:]
 

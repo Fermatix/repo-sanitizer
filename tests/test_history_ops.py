@@ -692,3 +692,20 @@ def test_removed_report_names_the_history_paths_the_deny_rules_deleted(pii_defs)
     assert rep.startswith("deny_paths: 3 path(s) deleted from history: ")
     assert "certs/server.key" in rep and "deploy/.env.production" in rep and "docs/report.docx" in rep and ".env.example" not in rep
     assert Scrubber(SALT, pii_pattern_defs=pii_defs).removed_report() == "deny_paths: 0 path(s) deleted from history"
+
+
+def test_wp_salt_block_is_masked_value_only(pii_defs):
+    """69d097e9: 5 of 8 wp-config.php key/salt constants shipped live — their 64-char values carry punctuation the generic
+    patterns reject. `wp_salt` (rulepack 1.5.25) is a GROUPED pattern: the define() stays, only the value is replaced."""
+    wp = ("wp_salt", r"""(?i)define\(\s*['"](?:AUTH|SECURE_AUTH|LOGGED_IN|NONCE)_(?:KEY|SALT)['"]\s*,\s*['"](?!REDACTED_|put your unique phrase here)([^'"\n]{16,})['"]\s*\)""")
+    scr = Scrubber(SALT, pii_pattern_defs=[d for d in pii_defs if d[0] != "wp_salt"] + [wp])
+    blob = _Blob(
+        b"define('AUTH_KEY',         'x7$Q!k)9~;N@#|-+c2Bu(H^v]M<jL}E&Z[8*wGd?%a`T/4fY.p,1Re:oI=s{VbUn0Xz');\n"
+        b"define('NONCE_SALT', 'put your unique phrase here');\n"
+        b"define('WP_DEBUG', false);\n"
+    )
+    scr.blob(blob)
+    out = blob.data.decode()
+    assert b"x7$Q!k)9" not in blob.data
+    assert "define('AUTH_KEY',         'REDACTED_" in out, out
+    assert "put your unique phrase here" in out and "define('WP_DEBUG', false);" in out
