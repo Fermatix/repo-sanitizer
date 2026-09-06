@@ -172,6 +172,7 @@ UNIVERSAL_URL_HOSTS = frozenset({
     "1c-bitrix.ru", "yastatic.net", "ietf.org", "iana.org", "unicode.org", "whatwg.org",
     "ecma-international.org", "typescriptlang.org", "eslint.org", "prettier.io", "babeljs.io",
     "webpack.js.org", "vitejs.dev", "jestjs.io",
+    "editorconfig.org", "protractortest.org", "karma-runner.github.io", "jasmine.github.io", "mochajs.org", "cypress.io",   # OSS test/doc hosts (eaf57629)
 })
 
 # EXACT hosts (no subdomain match): their PARENT domain is multi-tenant, so only this one host is kept —
