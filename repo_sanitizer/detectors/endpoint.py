@@ -174,6 +174,7 @@ UNIVERSAL_URL_HOSTS = frozenset({
     "webpack.js.org", "vitejs.dev", "jestjs.io",
     "editorconfig.org", "protractortest.org", "karma-runner.github.io", "jasmine.github.io", "mochajs.org", "cypress.io",   # OSS test/doc hosts (eaf57629)
     "jshint.com", "sensiolabs.org", "symfony.com",   # 0869f8a8 README, 316d5c6a Dockerfiles
+    "docker.com", "docker.io", "dockerproject.org",   # public Docker package hosts (apt.dockerproject.org, e7e90c3b)
 })
 
 # EXACT hosts (no subdomain match): their PARENT domain is multi-tenant, so only this one host is kept —
