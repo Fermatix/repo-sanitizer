@@ -45,6 +45,11 @@ _DATA_URI_IMG_RE = re.compile(
     rb"data:image/(?:png|jpe?g|gif|webp|bmp|x-icon|vnd\.microsoft\.icon|tiff?)(?:;[a-z0-9=\-]+)*;base64,(?:[A-Za-z0-9+/=]|%2B|%2F|%3D|\s){64,}",
     re.I)
 WHITE_1X1_PNG_B64 = (b"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGP4DwABAQEAWk1v8QAAAABJRU5ErkJggg==")
+# A raster stored as a BARE base64 attribute value (UiPath `ImageBase64="iVBOR…"`, e92caaeb: 10 screenshots came through
+# byte-identical): the run must START with a raster signature — PNG `iVBORw0KGgo`, JPEG `/9j/4`, GIF `R0lGOD`, WebP
+# `UklGRi` — and be at least 200 base64 chars; a signature inside a longer run (a base64 zip holding a JPEG) is left alone.
+_BARE_B64_IMG_RE = re.compile(rb"(?<![A-Za-z0-9+/])(?:iVBORw0KGgo|/9j/4|R0lGOD[dl]h|UklGRi)[A-Za-z0-9+/]{200,}={0,2}")
+_BARE_B64_HINTS = (b"iVBORw0KGgo", b"/9j/4", b"R0lGOD", b"UklGRi")
 
 
 class Blanker:
@@ -104,16 +109,23 @@ class Blanker:
         return buf.getvalue()
 
     def blank_data_uris(self, data: bytes) -> bytes:
-        """Replace every base64 raster data URI inside a TEXT blob by a 1×1 white PNG data URI (mime kept as PNG)."""
-        if b"base64," not in data:
-            return data
-
-        def repl(m):
-            self.data_uris += 1
-            self.bytes_in += len(m.group(0))
-            self.bytes_out += 22 + len(WHITE_1X1_PNG_B64)
-            return b"data:image/png;base64," + WHITE_1X1_PNG_B64
-        return _DATA_URI_IMG_RE.sub(repl, data)
+        """Replace every base64 raster data URI inside a TEXT blob by a 1×1 white PNG data URI (mime kept as PNG), and
+        every BARE base64 raster payload (an attribute value with no data: prefix) by the bare 1×1 white PNG."""
+        if b"base64," in data:
+            def repl(m):
+                self.data_uris += 1
+                self.bytes_in += len(m.group(0))
+                self.bytes_out += 22 + len(WHITE_1X1_PNG_B64)
+                return b"data:image/png;base64," + WHITE_1X1_PNG_B64
+            data = _DATA_URI_IMG_RE.sub(repl, data)
+        if any(h in data for h in _BARE_B64_HINTS):
+            def repl_bare(m):
+                self.data_uris += 1
+                self.bytes_in += len(m.group(0))
+                self.bytes_out += len(WHITE_1X1_PNG_B64)
+                return WHITE_1X1_PNG_B64
+            data = _BARE_B64_IMG_RE.sub(repl_bare, data)
+        return data
 
     def report(self) -> dict:
         return {"blobs": sum(self.stats.values()), "by_format": dict(sorted(self.stats.items())),
