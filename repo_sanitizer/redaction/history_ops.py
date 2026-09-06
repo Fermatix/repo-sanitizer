@@ -87,6 +87,7 @@ _GROUPED_SECRET_NAMES = frozenset({
     "gcp_private_key_id", "gcp_client_id",   # service-account JSON ids next to an already-redacted key (339c3e2a)
     "cli_password",               # sshpass -p / --password= / PGPASSWORD= on a command line (3a3e4a62)
     "oauth_client_id",            # client / app id in clear next to its redacted secret (6ad46232)
+    "braintree_credentials",      # Braintree private / public key / merchant id: bare alphanumerics (9240a8d2)
 })
 #  * wp_salt (WordPress define('AUTH_KEY', '…') key/salt block, rulepack 1.5.25) → value only, like the grouped
 #    secrets, but WITHOUT the template check: a 64-char salt is random punctuation (`{`, `}`, `$`, `%`, `<`) that
