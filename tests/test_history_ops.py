@@ -667,3 +667,12 @@ def test_public_ip_in_ssh_scp_destination_is_masked(ip_scrubber):
         out = ip_scrubber.message(line)
         assert b"52.14.226.9" not in out and b"91.200.15.10" not in out and b"203.0.113." in out
 
+
+def test_directory_style_deny_globs_never_delete_everything():
+    """The filename callback matches deny globs by their last segment; `**/.sass-cache/**` therefore matched every path
+    and emptied the tree (caught by the parent selftest, 2026-09-06). Such globs are ignored; basename globs still work."""
+    scr = Scrubber(SALT, pii_pattern_defs=[], deny_globs=["**/.sass-cache/**", "**/*.scssc", "**/.DS_Store"])
+    assert scr.filename(b"assets/logo.png") == b"assets/logo.png"
+    assert scr.filename(b"css/.sass-cache/abc/style.scssc") == b""
+    assert scr.filename(b"img/.DS_Store") == b""
+

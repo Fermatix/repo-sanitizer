@@ -529,7 +529,12 @@ class Scrubber:
         self._person_repl = []
 
         self._brands = compile_brand_map(brand_map_rows or [])
-        self._deny_globs = list(deny_globs or [])
+        # the filename callback matches a deny glob by its LAST segment (a path-less basename match): a glob ending in `**`
+        # or `*` (`**/.sass-cache/**`) would match every path and delete the whole tree — refuse those instead
+        self._deny_globs = [g for g in (deny_globs or []) if str(g).split("/")[-1] not in ("*", "**")]
+        if len(self._deny_globs) != len(deny_globs or []):
+            logging.getLogger(__name__).warning("deny glob(s) ending in * / ** ignored (would delete every path): %s",
+                                                [g for g in deny_globs if str(g).split("/")[-1] in ("*", "**")])
         self._binary_deny = {e.lower().lstrip(".") for e in (binary_deny_extensions or [])}
         self._allow_suffixes = tuple(allow_suffixes or [])
 
