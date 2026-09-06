@@ -176,6 +176,21 @@ def in_version_context(text: str, start: int, window: int = 48) -> bool:
     return bool(_VERSION_CTX_RE.search(pre[cut:]))
 
 
+_SVG_DATA_ATTR = re.compile(r"""[\s<](?:d|points|values|keyTimes|keySplines|viewBox)\s*=\s*$""")
+
+
+def in_svg_path_data(text: str, start: int, window: int = 200_000) -> bool:
+    """True if the position sits inside an SVG DATA attribute value (`d="…"`, `points="…"`, `viewBox="…"`, …): the value
+    starts at the last quote before `start`, and the text before that quote ends with ` d=`. A dotted quad of coordinates
+    (`3.2.1.4` after `M12`) is not an IP — the stock Angular welcome page shipped a 203.0.113.x literal (2348a140).
+    Path data can run for kilobytes, so the search window is wide but bounded."""
+    lo = start - window if start > window else 0
+    q = max(text.rfind('"', lo, start), text.rfind("'", lo, start))
+    if q < 0:
+        return False
+    return bool(_SVG_DATA_ATTR.search(text, max(lo, q - 40), q))
+
+
 def is_bare_domain(value: str) -> bool:
     """A hostname / package-with-dots (foo.com, cloud.google.com) — not a secret."""
     return ("." in value and not value.replace(".", "").isdigit()

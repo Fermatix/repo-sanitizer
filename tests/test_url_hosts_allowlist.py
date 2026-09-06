@@ -11,6 +11,7 @@ from repo_sanitizer.detectors.endpoint import _is_kept_url_host
     "fonts.googleapis.com", "developer.mozilla.org", "dev.1c-bitrix.ru",
     # public package mirrors pinned in lockfiles (9f7b24fe: 1467 yarn.lock lines went to *.example.invalid)
     "registry.npm.taobao.org", "registry.npmmirror.com", "r.cnpmjs.org", "mirrors.aliyun.com",
+    "karma-runner.github.io", "carthage.github.io", "www.makeareadme.com",   # OSS docs / README template hosts (2348a140)
     # exact hosts of multi-tenant parents
     "storage.yandexcloud.net", "www.googleapis.com", "oauth2.googleapis.com", "accounts.google.com", "js.stripe.com",
 ])

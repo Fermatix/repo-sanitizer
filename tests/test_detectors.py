@@ -716,3 +716,26 @@ def test_ipv4_pattern_skips_svg_files():
     assert det.detect(ScanTarget(file_path="Icons/LOGO.SVG", content=svg)) == []
     hits = det.detect(ScanTarget(file_path="conf/hosts.txt", content="upstream 45.33.32.156"))
     assert len(hits) == 1
+
+
+def test_endpoint_url_host_stops_before_markdown_punctuation():
+    """2348a140: `[Karma](https://karma-runner.github.io).` captured the host as `karma-runner.github.io).` — the allowlisted
+    host failed its own check and the mask swallowed `).`. The host ends before `)` `]` `,` `;` and a sentence-ending `.`."""
+    from repo_sanitizer.detectors.endpoint import URL_HOST_PATTERN, EndpointDetector
+    content = "See [Karma](https://karma-runner.github.io). Deploy: (https://prod.client-corp.ru), then https://client-corp.ru.\n"
+    hosts = [m.group(3) for m in URL_HOST_PATTERN.finditer(content)]
+    assert hosts == ["karma-runner.github.io", "prod.client-corp.ru", "client-corp.ru"], hosts
+    found = EndpointDetector().detect(ScanTarget(file_path="README.md", content=content))
+    vals = sorted(f.matched_value for f in found)
+    assert not any("karma-runner" in v for v in vals), vals
+    assert any("client-corp.ru" in v for v in vals), vals
+
+
+def test_endpoint_ignores_dotted_quads_inside_svg_path_data():
+    """2348a140: the stock Angular welcome page's inline SVG `<path d="… 3.2.1.4 …">` shipped a 203.0.113.x documentation IP."""
+    from repo_sanitizer.detectors.endpoint import EndpointDetector
+    svg = '<svg viewBox="0 0 24 24"><path d="M12 3.2.1.4 6.7.8.9L45.67.89.10z" fill="none"/></svg>\n'
+    assert EndpointDetector().detect(ScanTarget(file_path="app.component.html", content=svg)) == []
+    ctl = 'server = 45.67.89.10\n'
+    assert EndpointDetector().detect(ScanTarget(file_path="deploy.cfg", content=ctl)), "control: a bare public IP is still flagged"
+

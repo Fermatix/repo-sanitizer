@@ -753,3 +753,22 @@ def test_data_uri_rasters_inside_text_blobs_are_blanked():
     off = Scrubber(SALT)
     keep = Blob(css); off.blob(keep)
     assert keep.data == css
+
+
+def test_url_host_mask_stops_before_markdown_punctuation(pii_defs):
+    """2348a140: `[Karma](https://karma-runner.github.io).` — the host capture ran into `).`, the allowlisted host failed its
+    own check and the mask swallowed the closing paren. History route (bytes) of the same URL_HOST_PATTERN."""
+    scr = Scrubber(SALT, pii_pattern_defs=pii_defs, scrub_urls=True)
+    out = scr.message(b"See [Karma](https://karma-runner.github.io). Prod: (https://prod.client-corp.ru), done.")
+    assert b"https://karma-runner.github.io)." in out, out
+    assert b"client-corp.ru" not in out and b".example.invalid), done." in out, out
+
+
+def test_public_ip_scrub_skips_svg_path_data(pii_defs):
+    """2348a140: the stock Angular welcome page's inline SVG carried a quad of path coordinates that became 203.0.113.x."""
+    scr = Scrubber(SALT, pii_pattern_defs=pii_defs, scrub_public_ips=True)
+    svg = b'<svg viewBox="0 0 24 24"><path d="M12 3.2.1.4 6.7.8.9L45.67.89.10z" fill="none"/></svg>'
+    assert scr.message(svg) == svg
+    ctl = b"server = 45.67.89.10\n"
+    assert b"45.67.89.10" not in scr.message(ctl), "control: a bare public IP is still masked"
+

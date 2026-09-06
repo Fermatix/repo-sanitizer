@@ -3,7 +3,7 @@ from __future__ import annotations
 import ipaddress
 import re
 
-from repo_sanitizer.buildsafe import in_version_context
+from repo_sanitizer.buildsafe import in_svg_path_data, in_version_context
 from repo_sanitizer.detectors.base import (
     Category,
     Detector,
@@ -77,8 +77,11 @@ DOMAIN_PATTERN = re.compile(
 # structure intact — so masking never produces a `[...]` token that corrupts
 # YAML/XML. Splitting userinfo prevents a username surviving under an
 # allowlisted host; the IPv6 branch prevents a `[[ipv6:…]]` double-mask.
+# The host never runs into `)` `]` `}` `,` `;` or a sentence-ending `.`: in markdown `[Karma](https://karma-runner.github.io).`
+# the captured host was `karma-runner.github.io).`, so the allowlisted host failed its own check and the mask swallowed
+# `).`, leaving an unclosed link (2348a140).
 URL_HOST_PATTERN = re.compile(
-    r"(https?://)(?:([^/@\s\"'<>]*)@)?(\[[0-9A-Fa-f:.]+\]|[^/:\s\"'<>?#\\]+)",
+    r"(https?://)(?:([^/@\s\"'<>]*)@)?(\[[0-9A-Fa-f:.]+\]|[^/:\s\"'<>?#\\)\]},;]+(?<!\.))",
     re.IGNORECASE,
 )
 
@@ -132,6 +135,7 @@ UNIVERSAL_URL_HOSTS = frozenset({
     "getcomposer.org", "get.symfony.com", "symfony.com", "getpsalm.org",
     "readthedocs.io", "readthedocs.org", "json.schemastore.org", "schemastore.org",
     "phar.phpunit.de", "deb.nodesource.com", "dl.yarnpkg.com", "sh.rustup.rs",
+    "carthage.github.io", "makeareadme.com",   # = rulepack https_url skip-list (carthage since 1.5.x; makeareadme: the GitLab README template link, 2348a140)
     # code hosting (the host is public; an identifying org/repo in the PATH is
     # the brand layer's job). NOTE: hosts whose *single-label* subdomain is
     # CUSTOMER-controlled (sourceforge.net `<proj>.`, googlesource.com `<proj>.`,
@@ -317,6 +321,10 @@ class EndpointDetector(Detector):
                 # A 4-part dotted version (AssemblyVersion="4.0.0.0") is a valid
                 # public IPv4 — not a deployment IP, so don't flag it.
                 if pattern is IPV4_PATTERN and in_version_context(target.content, start):
+                    continue
+                # inline-SVG path data in HTML/JSX (`<path d="… 10.5 3.2.1.4 …">`, the stock Angular welcome page): a quad
+                # of coordinates is not an address (2348a140 shipped a 203.0.113.x literal inside app.component.html)
+                if pattern is IPV4_PATTERN and in_svg_path_data(target.content, start):
                     continue
                 line = target.content[:start].count("\n") + 1
                 findings.append(

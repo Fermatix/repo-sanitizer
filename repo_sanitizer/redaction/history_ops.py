@@ -49,6 +49,7 @@ from repo_sanitizer.detectors.endpoint import (
     _is_kept_url_host,
     _is_public_ip,
 )
+_SVG_DATA_ATTR_B = re.compile(rb"""[\s<](?:d|points|values|keyTimes|keySplines|viewBox)\s*=\s*$""")   # = buildsafe._SVG_DATA_ATTR
 
 logger = logging.getLogger(__name__)
 
@@ -768,6 +769,11 @@ class Scrubber:
             if version_aware:
                 pre = m.string[max(0, m.start() - 28):m.start()].decode("ascii", "ignore")
                 if in_version_context(pre, len(pre)):
+                    return raw
+                # inline-SVG path / points data (`<path d="… 3.2.1.4 …">` in HTML/JSX, 2348a140): coordinates, not an address
+                lo = max(0, m.start() - 200_000)
+                q = max(m.string.rfind(b'"', lo, m.start()), m.string.rfind(b"'", lo, m.start()))
+                if q > 0 and _SVG_DATA_ATTR_B.search(m.string, max(lo, q - 40), q):
                     return raw
             return masker(self.salt, raw)
 
