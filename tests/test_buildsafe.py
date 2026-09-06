@@ -234,6 +234,17 @@ def test_no_bracket_markers_emitted(pii_defs):
         assert marker not in out, f"build-breaking marker {marker!r} still emitted"
 
 
+def test_user_agent_product_versions_are_version_context():
+    """f16608f2: a vendored phpQuery User-Agent string `rv:1.9.2.3` became `rv:203.0.113.17` — a Gecko revision and a
+    `Product/x.y.z.w` token are versions, not deployment IPs; a path followed by a space and an IP is still an IP."""
+    from repo_sanitizer.buildsafe import in_version_context
+    ua = "Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.2.3) Gecko/20100401 Firefox/3.6.3.1 Trident/4.0.0.1"
+    for quad in ("1.9.2.3", "3.6.3.1", "4.0.0.1"):
+        assert in_version_context(ua, ua.index(quad)), quad
+    for text in ("rsync -av dist/ 52.14.226.9:/var/www", "http://52.14.226.9/x", "srv 52.14.226.9", "host=52.14.226.9"):
+        assert not in_version_context(text, text.index("52.")), text
+
+
 def test_dependency_pins_are_version_context():
     """c9c2f50c: `clickhouse-cityhash==1.0.2.3` in requirements.txt became a doc-range IP (pip install broken); the same
     for Gemfile.lock / Podfile.lock parenthesised pins and `pkg@1.2.3.4`. A bare deployment IP is still not a version."""

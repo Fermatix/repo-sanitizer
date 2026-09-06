@@ -157,6 +157,10 @@ _VERSION_CTX_RE = re.compile(
 # NOT `@`: `pkg@1.2.3.4` is rare, while `ubuntu@52.14.226.9:/var/www` (scp / ssh / rsync destinations) is a deployment
 # fingerprint — treating `@` as a pin hid three public IPs in a Jenkinsfile (499deb7d)
 _PIN_RE = re.compile(r"(?:[=~<>!]=|\(\s*(?:[=~<>!]+)?)\s*\Z")
+# A User-Agent PRODUCT TOKEN glued to the quad — Gecko `rv:1.9.2.3`, `Firefox/3.6.3.1`, `Trident/4.0.0.1` (a vendored
+# phpQuery UA string became `rv:203.0.113.17`, f16608f2). Immediately adjacent only: `rsync dist/ 52.14.226.9:` keeps the
+# space between the path and the deployment IP, so it is still an IP.
+_UA_PRODUCT_RE = re.compile(r"(?:\brv:|\b[A-Za-z][A-Za-z0-9_.+-]{0,40}/)\Z")
 _FIELD_CLOSE_RE = re.compile(r"[)\]};>,\n]")
 
 
@@ -166,7 +170,7 @@ def in_version_context(text: str, start: int, window: int = 48) -> bool:
     within the current field — the lookback is cut at the last field-closing
     delimiter, so a version keyword from a PREVIOUS field can't protect a later IP."""
     pre = text[max(0, start - window):start]
-    if _PIN_RE.search(pre):
+    if _PIN_RE.search(pre) or _UA_PRODUCT_RE.search(pre):
         return True
     cut = max((m.end() for m in _FIELD_CLOSE_RE.finditer(pre)), default=0)
     return bool(_VERSION_CTX_RE.search(pre[cut:]))
