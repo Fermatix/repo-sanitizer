@@ -659,3 +659,11 @@ def test_android_manifest_meta_data_value_masked_only():
     keep = b'<meta-data android:name="io.crash.sdk.API_KEY" android:value="@string/crash_key" />'
     assert scr.message(keep) == keep
 
+
+def test_public_ip_in_ssh_scp_destination_is_masked(ip_scrubber):
+    """499deb7d: `scp … ubuntu@52.14.226.9:/var/www` and `ssh deploy@52.14.226.9` kept three real addresses — the
+    version-pin guard treated `@` as a pin."""
+    for line in (b"scp -r dist/* ubuntu@52.14.226.9:/var/www/html", b"ssh deploy@52.14.226.9 uptime", b"rsync -avz build/ ci@91.200.15.10:/srv"):
+        out = ip_scrubber.message(line)
+        assert b"52.14.226.9" not in out and b"91.200.15.10" not in out and b"203.0.113." in out
+

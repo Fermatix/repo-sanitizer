@@ -152,9 +152,11 @@ _VERSION_CTX_RE = re.compile(
 )
 # A dependency PIN immediately before the quad — `clickhouse-cityhash==1.0.2.3` (requirements.txt, c9c2f50c: pip install
 # broken), `~=` / `>=` / `<=` / `!=`, Gemfile.lock / Podfile.lock `name (7.0.4.3)` / `(= 7.0.4.3)` / `(~> 7.0.4.3)`,
-# `pkg@1.2.3.4`. Anchored at the quad, so it is checked on the UNCUT window (`>` of `>=` / `~>` is itself a
+# Anchored at the quad, so it is checked on the UNCUT window (`>` of `>=` / `~>` is itself a
 # field-closing delimiter). The rulepack `ipv4` pattern carries the same guards; this pass has its own regex.
-_PIN_RE = re.compile(r"(?:[=~<>!]=|\(\s*(?:[=~<>!]+)?|@)\s*\Z")
+# NOT `@`: `pkg@1.2.3.4` is rare, while `ubuntu@52.14.226.9:/var/www` (scp / ssh / rsync destinations) is a deployment
+# fingerprint — treating `@` as a pin hid three public IPs in a Jenkinsfile (499deb7d)
+_PIN_RE = re.compile(r"(?:[=~<>!]=|\(\s*(?:[=~<>!]+)?)\s*\Z")
 _FIELD_CLOSE_RE = re.compile(r"[)\]};>,\n]")
 
 

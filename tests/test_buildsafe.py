@@ -239,10 +239,11 @@ def test_dependency_pins_are_version_context():
     for Gemfile.lock / Podfile.lock parenthesised pins and `pkg@1.2.3.4`. A bare deployment IP is still not a version."""
     from repo_sanitizer.buildsafe import in_version_context
     for text in ("clickhouse-cityhash==1.0.2.3", "pkg~=1.0.2.3", "pkg>=1.0.2.3", "    activesupport (7.0.4.3)",
-                 "      railties (~> 6.1.7.2)", "      actionpack (= 6.1.7.2)", "  - AFNetworking (4.0.1.2):", "npm:foo@1.2.3.4"):
+                 "      railties (~> 6.1.7.2)", "      actionpack (= 6.1.7.2)", "  - AFNetworking (4.0.1.2):"):
         start = text.index(next(ch for ch in text if ch.isdigit()))
         assert in_version_context(text, start), text
-    for text in ("host = 52.14.226.9", "ping 52.14.226.9", "server: 52.14.226.9", "http://52.14.226.9/x"):
+    for text in ("host = 52.14.226.9", "ping 52.14.226.9", "server: 52.14.226.9", "http://52.14.226.9/x",
+                 "scp -r dist ubuntu@52.14.226.9:/var/www", "ssh deploy@52.14.226.9 uptime"):   # user@ip is a target, not a pin (499deb7d)
         start = text.index("52.")
         assert not in_version_context(text, start), text
 
