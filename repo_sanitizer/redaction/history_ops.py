@@ -92,7 +92,7 @@ _GROUPED_SECRET_NAMES = frozenset({
 #  * wp_salt (WordPress define('AUTH_KEY', '…') key/salt block, rulepack 1.5.25) → value only, like the grouped
 #    secrets, but WITHOUT the template check: a 64-char salt is random punctuation (`{`, `}`, `$`, `%`, `<`) that
 #    is_template() reads as a placeholder, so 5 of 8 constants shipped live in 69d097e9 / 0d4692eb.
-_RAW_GROUPED_NAMES = frozenset({"wp_salt", "secret_assignment"})   # secret_assignment: punctuation-rich passwords are not templates (eee4fbaa)
+_RAW_GROUPED_NAMES = frozenset({"wp_salt", "secret_assignment", "phone_ru_keyed"})   # secret_assignment: punctuation-rich passwords are not templates (eee4fbaa); phone_ru_keyed: the key stays (fb91bb8c)
 #  * credit_card → mask only if the digit run passes the Luhn checksum; a 16-digit
 #    float / Unity fileID / model weight that merely looks card-shaped is left
 #    intact (it is numeric DATA, masking it breaks the asset/model/JSON).
