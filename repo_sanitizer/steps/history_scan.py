@@ -8,6 +8,7 @@ from pathlib import Path
 
 from repo_sanitizer.context import RunContext
 from repo_sanitizer.detectors.base import Detector, Finding, ScanTarget
+from repo_sanitizer.encoding import decode_bytes_detect
 from repo_sanitizer.rulepack import Rulepack
 
 logger = logging.getLogger(__name__)
@@ -36,13 +37,17 @@ def run_history_scan(
         cmd,
         cwd=str(work_dir),
         capture_output=True,
-        text=True,
     )
     if result.returncode != 0:
-        logger.warning("git log failed: %s", result.stderr)
+        logger.warning("git log failed: %s", result.stderr.decode("utf-8", "replace"))
         return all_findings
 
-    commits = _parse_log(result.stdout)
+    # Decode each commit record on its own with detection (UTF-8 first, cp1251 fallback, never raises): one cp1251 commit
+    # message in an otherwise UTF-8 history aborted the whole Pass-1 with a strict `text=True` decode
+    # ("'utf-8' codec can't decode byte 0xd3", 5268dbed). Author names / e-mails are decoded with the same record.
+    sep = b"\n---END---\n"
+    stdout = sep.decode().join(decode_bytes_detect(rec)[0] for rec in result.stdout.split(sep))
+    commits = _parse_log(stdout)
 
     for commit in commits:
         sha = commit["sha"]
