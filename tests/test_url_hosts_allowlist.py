@@ -9,6 +9,8 @@ from repo_sanitizer.detectors.endpoint import _is_kept_url_host
 @pytest.mark.parametrize("host", [
     "www.apple.com", "files.pythonhosted.org", "pypi.org", "redis.io", "ui.shadcn.com", "demo_feed.tradingview.com",
     "fonts.googleapis.com", "developer.mozilla.org", "dev.1c-bitrix.ru",
+    # public package mirrors pinned in lockfiles (9f7b24fe: 1467 yarn.lock lines went to *.example.invalid)
+    "registry.npm.taobao.org", "registry.npmmirror.com", "r.cnpmjs.org", "mirrors.aliyun.com",
     # exact hosts of multi-tenant parents
     "storage.yandexcloud.net", "www.googleapis.com", "oauth2.googleapis.com", "accounts.google.com", "js.stripe.com",
 ])
@@ -24,6 +26,7 @@ def test_public_infra_hosts_are_kept(host):
     "crm.some-regional-company.ru",
     "client-apple.com",                           # merely ends with a listed suffix
     "www.google.com",                             # /maps/place/<address> identifies a real site
+    "npm.client-mirror.ru",                       # a private registry mirror still identifies its owner
 ])
 def test_customer_hosts_are_still_masked(host):
     assert not _is_kept_url_host(host, set())

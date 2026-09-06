@@ -117,6 +117,9 @@ UNIVERSAL_URL_HOSTS = frozenset({
     "yarnpkg.com", "maven.org", "sonatype.org", "gradle.org", "jitpack.io",
     "rubygems.org", "crates.io", "golang.org", "go.dev", "sum.golang.org",
     "proxy.golang.org", "packagist.org", "spdx.org",
+    # public package MIRRORS pinned in lockfiles (registry.npm.taobao.org ×1467 in a yarn.lock went to
+    # *.example.invalid and `yarn install` could not resolve, 9f7b24fe): identify nobody, break the build when masked
+    "npm.taobao.org", "npmmirror.com", "cnpmjs.org", "mirrors.aliyun.com",
     # OS / container package repositories
     "nodesource.com", "packages.microsoft.com", "debian.org", "ubuntu.com",
     "alpinelinux.org", "fedoraproject.org", "docker.io", "docker.com",
