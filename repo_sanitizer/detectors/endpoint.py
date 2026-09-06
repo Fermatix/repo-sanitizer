@@ -176,6 +176,7 @@ UNIVERSAL_URL_HOSTS = frozenset({
     "jshint.com", "sensiolabs.org", "symfony.com",   # 0869f8a8 README, 316d5c6a Dockerfiles
     "docker.com", "docker.io", "dockerproject.org",   # public Docker package hosts (apt.dockerproject.org, e7e90c3b)
     "loopj.com", "square.github.io", "squareup.com", "greenrobot.org",   # Android OSS library homes in vendored licence headers (87753d70)
+    "pytorch.org", "arxiv.org", "tensorflow.org", "huggingface.co", "anaconda.org", "conda.io",   # ML package hosts / paper links (ea902925)
 })
 
 # EXACT hosts (no subdomain match): their PARENT domain is multi-tenant, so only this one host is kept —
