@@ -67,7 +67,9 @@ def run_package(ctx: RunContext) -> Path:
         )
 
     result = subprocess.run(
-        ["git", "bundle", "create", str(bundle_path), "--branches", "HEAD"],
+        # `--`: with a top-level `head/` path in the tree, HEAD is "both revision and filename" on a case-insensitive
+        # filesystem and git aborts the bundle (fa257c23, APFS)
+        ["git", "bundle", "create", str(bundle_path), "--branches", "HEAD", "--"],
         cwd=str(ctx.work_dir),
         capture_output=True,
         text=True,

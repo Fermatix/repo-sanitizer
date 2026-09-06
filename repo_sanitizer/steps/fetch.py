@@ -128,7 +128,7 @@ def _checkout_tolerant(dest: Path) -> int:
         logger.warning("%d path(s) with non-UTF-8 names skipped in the worktree (kept in history)", len(bad))
     result = subprocess.run(["git", "checkout", "-q", "--", "."], cwd=str(dest), **_TEXT)
     if result.returncode != 0:                       # unborn / detached HEAD in an odd bundle: best effort
-        subprocess.run(["git", "checkout", "-q", "--force", "HEAD"], cwd=str(dest), **_TEXT)
+        subprocess.run(["git", "checkout", "-q", "--force", "HEAD", "--"], cwd=str(dest), **_TEXT)   # `head/` path: see package.py
     return len(bad)
 
 
