@@ -660,6 +660,10 @@ def _build_filter_script(plan: FilterPlan) -> str:
         args.force = True
         args.partial = True
         args.replace_refs = "update-no-add"
+        # image blanking / secret-carrier deletion can empty a commit; never prune it — commit count is a catalog
+        # metric and the message is scrubbed anyway (6a0b26f5: 3 commits delivered where the original had 4)
+        args.prune_empty = "never"
+        args.prune_degenerate = "never"
 
         config_scrubber = ConfigHistoryScrubber(scrubber) if {mask_config_repr} else None
         callbacks = ({{"file_info_callback": config_scrubber.file_info}} if config_scrubber
