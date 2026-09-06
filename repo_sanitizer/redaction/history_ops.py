@@ -536,6 +536,7 @@ class Scrubber:
             logging.getLogger(__name__).warning("deny glob(s) ending in * / ** ignored (would delete every path): %s",
                                                 [g for g in deny_globs if str(g).split("/")[-1] in ("*", "**")])
         self._binary_deny = {e.lower().lstrip(".") for e in (binary_deny_extensions or [])}
+        self._removed_paths: set[str] = set()      # every history path deleted by deny globs / denied extensions (capped)
         self._allow_suffixes = tuple(allow_suffixes or [])
 
     # ── author identity ──────────────────────────────────────────────────────
@@ -814,9 +815,26 @@ class Scrubber:
         name = path_str.split("/")[-1]
         for g in self._deny_globs:
             if fnmatch(name, g.split("/")[-1]):
+                self._note_removed(path_str)
                 return True
         ext = path_str.rsplit(".", 1)[-1].lower() if "." in path_str else ""
-        return ext in self._binary_deny
+        if ext in self._binary_deny:
+            self._note_removed(path_str)
+            return True
+        return False
+
+    def _note_removed(self, path_str: str) -> None:
+        if len(self._removed_paths) < 5000:
+            self._removed_paths.add(path_str)
+
+    def removed_report(self) -> str:
+        """One line for the rewrite log: which paths the deny rules deleted from history. A purged TLS private key or
+        `.env` never reaches any scan report, so the orchestrator's rotation list could not name it (69e40881)."""
+        if not self._removed_paths:
+            return "deny_paths: 0 path(s) deleted from history"
+        paths = sorted(self._removed_paths)
+        shown = ", ".join(paths[:500]) + (f", … (+{len(paths) - 500} more)" if len(paths) > 500 else "")
+        return f"deny_paths: {len(paths)} path(s) deleted from history: {shown}"
 
     def filename(self, path: bytes) -> bytes:
         """Filename callback: delete deny/binary paths, else rename brand segments

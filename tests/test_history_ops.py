@@ -676,3 +676,19 @@ def test_directory_style_deny_globs_never_delete_everything():
     assert scr.filename(b"css/.sass-cache/abc/style.scssc") == b""
     assert scr.filename(b"img/.DS_Store") == b""
 
+
+
+def test_removed_report_names_the_history_paths_the_deny_rules_deleted(pii_defs):
+    """A purged TLS private key / .env never reaches a scan report, so the orchestrator could not list it for rotation
+    (69e40881): the filename callback now records every deleted path and reports them in the rewrite log."""
+    scr = Scrubber(SALT, pii_pattern_defs=pii_defs, deny_globs=["*.key", "**/.env*"], binary_deny_extensions=["docx"],
+                   allow_suffixes=[".example"])
+    assert scr.filename(b"certs/server.key") == b""
+    assert scr.filename(b"deploy/.env.production") == b""
+    assert scr.filename(b"docs/report.docx") == b""
+    assert scr.filename(b".env.example") == b".env.example"
+    assert scr.filename(b"src/app.py") == b"src/app.py"
+    rep = scr.removed_report()
+    assert rep.startswith("deny_paths: 3 path(s) deleted from history: ")
+    assert "certs/server.key" in rep and "deploy/.env.production" in rep and "docs/report.docx" in rep and ".env.example" not in rep
+    assert Scrubber(SALT, pii_pattern_defs=pii_defs).removed_report() == "deny_paths: 0 path(s) deleted from history"

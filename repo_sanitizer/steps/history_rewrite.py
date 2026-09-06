@@ -681,6 +681,7 @@ def _build_filter_script(plan: FilterPlan) -> str:
             if any(v for k, v in config_scrubber.masker.stats.items() if k.startswith("skipped_")):
                 print("WARNING: config-value masking skipped candidates; inspect config_values_history.json", file=sys.stderr)
         print(scrubber.blank_report())
+        print(scrubber.removed_report())
         print("Filter-repo completed successfully")
         '''
     )
