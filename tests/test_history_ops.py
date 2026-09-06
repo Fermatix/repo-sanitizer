@@ -709,3 +709,19 @@ def test_wp_salt_block_is_masked_value_only(pii_defs):
     assert b"x7$Q!k)9" not in blob.data
     assert "define('AUTH_KEY',         'REDACTED_" in out, out
     assert "put your unique phrase here" in out and "define('WP_DEBUG', false);" in out
+
+
+def test_service_account_ids_are_masked_value_only(pii_defs):
+    """339c3e2a: private_key_id / client_id of a service-account JSON are grouped patterns — the keys stay, only the values
+    become REDACTED_<hash>, so the JSON still parses."""
+    defs = [d for d in pii_defs if d[0] not in ("gcp_private_key_id", "gcp_client_id")] + [
+        ("gcp_private_key_id", r'"private_key_id"\s*:\s*"(?!REDACTED_)([0-9a-f]{20,64})"'),
+        ("gcp_client_id", r'"client_id"\s*:\s*"(?!REDACTED_)(\d{15,25})"')]
+    scr = Scrubber(SALT, pii_pattern_defs=defs)
+    blob = _Blob(b'{"private_key_id": "0a1b2c3d4e5f60718293a4b5c6d7e8f901234567", "client_id": "112233445566778899001", "type": "service_account"}')
+    scr.blob(blob)
+    out = blob.data.decode()
+    import json as _json
+    parsed = _json.loads(out)
+    assert parsed["private_key_id"].startswith("REDACTED_") and parsed["client_id"].startswith("REDACTED_")
+    assert parsed["type"] == "service_account"

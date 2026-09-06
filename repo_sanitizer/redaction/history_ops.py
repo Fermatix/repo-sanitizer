@@ -84,6 +84,7 @@ _GROUPED_SECRET_NAMES = frozenset({
     # value becomes REDACTED_<hash> (rulepack 1.5.13 — a cleartext deploy token shipped in every commit of 7d703873).
     "xml_secret_element", "xml_secret_property", "xml_secret_attribute",
     "android_meta_data_secret",   # <meta-data android:name="…API_KEY" android:value="…"/> (1d4ed640)
+    "gcp_private_key_id", "gcp_client_id",   # service-account JSON ids next to an already-redacted key (339c3e2a)
 })
 #  * wp_salt (WordPress define('AUTH_KEY', '…') key/salt block, rulepack 1.5.25) → value only, like the grouped
 #    secrets, but WITHOUT the template check: a 64-char salt is random punctuation (`{`, `}`, `$`, `%`, `<`) that
