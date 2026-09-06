@@ -805,6 +805,8 @@ class Scrubber:
                 return white
         if b"\x00" in data[:8192] and not _decodes_as_text(data):
             return data
+        if self._blanker is not None:
+            data = self._blanker.blank_data_uris(data)      # rasters embedded as base64 data URIs in text (3a8089e9)
         return apply_brand_map_bytes(self._scrub_nonbrand(data), self._brands)
 
     def blank_report(self) -> str:
@@ -813,7 +815,8 @@ class Scrubber:
             return "blank_raster_images: off"
         r = self._blanker.report()
         return (f"blank_raster_images: {r['blobs']} raster image blob(s) replaced by white placeholders {r['by_format']} "
-                f"(unsized {r['unsized']}, png-fallback {r['fallback_png']}, {r['bytes_in'] // 1024} KB -> {r['bytes_out'] // 1024} KB); svg untouched")
+                f"(unsized {r['unsized']}, png-fallback {r['fallback_png']}, {r['bytes_in'] // 1024} KB -> {r['bytes_out'] // 1024} KB); "
+                f"data-URI rasters in text blobs: {r.get('data_uris', 0)}; svg untouched")
 
     # ── path handling ──────────────────────────────────────────────────────────
 

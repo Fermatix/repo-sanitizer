@@ -725,3 +725,31 @@ def test_service_account_ids_are_masked_value_only(pii_defs):
     parsed = _json.loads(out)
     assert parsed["private_key_id"].startswith("REDACTED_") and parsed["client_id"].startswith("REDACTED_")
     assert parsed["type"] == "service_account"
+
+
+def test_data_uri_rasters_inside_text_blobs_are_blanked():
+    """3a8089e9: a studio logo embedded as `data:image/png;base64,…` in a vendored CSS blob shipped — the blob blanker only
+    sees image BLOBS. Every base64 raster data URI in a text blob becomes a 1×1 white PNG; SVG data URIs and short
+    payloads stay; nothing happens with blanking off."""
+    import base64
+    from repo_sanitizer.redaction.blank_images import WHITE_1X1_PNG_B64
+    payload = base64.b64encode(bytes(range(256)) * 3).decode()
+    css = (f".logo{{background:url(data:image/png;base64,{payload})}}\n"
+           f".icon{{background:url(\"data:image/jpeg;base64,{payload}\")}}\n"
+           f".vec{{background:url(data:image/svg+xml;base64,{payload})}}\n"
+           f".tiny{{background:url(data:image/gif;base64,R0lGODlhAQABAAAAACw=)}}\n").encode()
+
+    class Blob:
+        def __init__(self, data: bytes) -> None:
+            self.data = data
+    scr = Scrubber(SALT, blank_raster_images=True)
+    blob = Blob(css); scr.blob(blob)
+    out = blob.data.decode()
+    assert out.count("data:image/png;base64," + WHITE_1X1_PNG_B64.decode()) == 2, out[:200]
+    assert payload not in out.split(".vec")[0], "png/jpeg payloads are gone"
+    assert f"data:image/svg+xml;base64,{payload}" in out, "SVG stays"
+    assert "R0lGODlhAQABAAAAACw=" in out, "a short payload (< 64 chars) is not a picture worth blanking"
+    assert "data-URI rasters in text blobs: 2" in scr.blank_report()
+    off = Scrubber(SALT)
+    keep = Blob(css); off.blob(keep)
+    assert keep.data == css

@@ -9,6 +9,7 @@ detected format. Rendered bytes are cached per (format, size): a gallery of 800 
 from __future__ import annotations
 
 import io
+import re
 from collections import Counter
 
 MAGIC = (
@@ -37,10 +38,20 @@ def sniff(data: bytes) -> str | None:
     return None
 
 
+# a raster embedded in a TEXT blob as `data:image/png;base64,…` (CSS background, inline <img>, JSON fixture): the blob
+# blanker never sees it because the blob is text. Every such payload becomes this 1×1 white PNG (3a8089e9: a studio
+# logo rode along inside a vendored CSS blob — "pictures do not ship at all" applies to those too). SVG stays text.
+_DATA_URI_IMG_RE = re.compile(
+    rb"data:image/(?:png|jpe?g|gif|webp|bmp|x-icon|vnd\.microsoft\.icon|tiff?)(?:;[a-z0-9=\-]+)*;base64,(?:[A-Za-z0-9+/=]|%2B|%2F|%3D|\s){64,}",
+    re.I)
+WHITE_1X1_PNG_B64 = (b"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGP4DwABAQEAWk1v8QAAAABJRU5ErkJggg==")
+
+
 class Blanker:
     def __init__(self) -> None:
         self.cache: dict[tuple[str, tuple[int, int]], bytes] = {}
         self.stats: Counter = Counter()          # format -> blobs replaced
+        self.data_uris: int = 0                  # base64 data-URI rasters inside text blobs replaced by a 1×1 white PNG
         self.unsized: int = 0                    # blobs Pillow could not size (→ 1×1)
         self.fallback_png: int = 0               # containers Pillow could not write (→ PNG bytes under the old name)
         self.bytes_in = 0
@@ -92,7 +103,19 @@ class Blanker:
             self.fallback_png += 1
         return buf.getvalue()
 
+    def blank_data_uris(self, data: bytes) -> bytes:
+        """Replace every base64 raster data URI inside a TEXT blob by a 1×1 white PNG data URI (mime kept as PNG)."""
+        if b"base64," not in data:
+            return data
+
+        def repl(m):
+            self.data_uris += 1
+            self.bytes_in += len(m.group(0))
+            self.bytes_out += 22 + len(WHITE_1X1_PNG_B64)
+            return b"data:image/png;base64," + WHITE_1X1_PNG_B64
+        return _DATA_URI_IMG_RE.sub(repl, data)
+
     def report(self) -> dict:
         return {"blobs": sum(self.stats.values()), "by_format": dict(sorted(self.stats.items())),
-                "unsized": self.unsized, "fallback_png": self.fallback_png,
+                "unsized": self.unsized, "fallback_png": self.fallback_png, "data_uris": self.data_uris,
                 "bytes_in": self.bytes_in, "bytes_out": self.bytes_out, "svg": "untouched (text)"}
