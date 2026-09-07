@@ -205,6 +205,9 @@ UNIVERSAL_URL_HOSTS = frozenset({
     "foo.com", "bar.com", "foo.bar", "provider.com", "somedomain.com", "some-domain.com", "yourcompany.com",
     "company.com", "yourapp.com", "myapp.com", "your-app.com", "my-app.com", "placeholder.com",
     "cbr.ru",   # Central Bank of Russia public rate feed (1c14f1b1: a currency-updater extension lost its feed URL)
+    # OSS funding platforms / maintainer pages in every lockfile's `funding` fields (a3ba8b0e: ~14 masked per package-lock.json)
+    "opencollective.com", "tidelift.com", "patreon.com", "paypal.me", "paypal.com", "ko-fi.com", "liberapay.com",
+    "buymeacoffee.com", "feross.org", "sindresorhus.com",
 })
 
 # EXACT hosts (no subdomain match): their PARENT domain is multi-tenant, so only this one host is kept —

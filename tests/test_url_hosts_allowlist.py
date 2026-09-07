@@ -50,7 +50,7 @@ def test_keep_names_match_the_registrable_label():
     # compose / dev-stack service names (be9a6e28, 2b5a2444: `storefront`, `payload`, `cms` became <hash>.example.invalid)
     "storefront", "payload", "cms", "strapi", "keycloak", "meilisearch", "php-fpm", "mailpit", "staging",
     # monorepo tool schema URL and documentation placeholder domains (`turbo.build/schema.json`, `site.com`, `s3.provider.com`)
-    "turbo.build", "site.com", "s3.provider.com", "api.yourdomain.com", "example.dev", "www.cbr.ru",
+    "turbo.build", "site.com", "s3.provider.com", "api.yourdomain.com", "example.dev", "www.cbr.ru", "opencollective.com", "tidelift.com", "www.patreon.com", "feross.org",
 ])
 def test_generic_service_names_and_doc_placeholders_are_kept(host):
     assert _is_kept_url_host(host, set())
