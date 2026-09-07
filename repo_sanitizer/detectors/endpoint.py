@@ -98,6 +98,19 @@ GENERIC_SINGLE_LABEL_HOSTS = frozenset({
     "elastic", "kibana", "rabbitmq", "amqp", "kafka", "zookeeper",
     "nginx", "httpd", "mail", "mailhog", "smtp", "minio", "vault", "consul",
     "etcd", "prometheus", "grafana", "traefik", "registry", "node",
+    # docker-compose / dev-stack service names seen masked in tutorial and guide repos (be9a6e28, 2b5a2444: `storefront`,
+    # `payload`, `cms` became <hash>.example.invalid and the compose network broke). Product names of OSS servers a stack
+    # runs on identify nobody either — the same names are already in the rulepack keep-list as frameworks.
+    "client", "service", "site", "portal", "dashboard", "storefront", "shop", "store", "cms", "payload", "strapi",
+    "directus", "medusa", "keycloak", "search", "meilisearch", "typesense", "solr", "opensearch", "clickhouse",
+    "neo4j", "cassandra", "couchdb", "influxdb", "timescaledb", "pgbouncer", "nats", "pulsar", "activemq",
+    "centrifugo", "mercure", "soketi", "websocket", "ws", "socket", "php", "php-fpm", "fpm", "python", "celery",
+    "flower", "scheduler", "cron", "sidekiq", "puma", "gunicorn", "uwsgi", "daphne", "storage", "static", "media",
+    "cdn", "s3", "mailpit", "maildev", "mailcatcher", "adminer", "pgadmin", "phpmyadmin", "sentry", "jaeger", "loki",
+    "tempo", "otel", "collector", "haproxy", "envoy", "caddy", "apache", "tomcat", "jenkins", "gitlab", "sonarqube",
+    "nexus", "harbor", "selenium", "chrome", "hub", "webpack", "vite", "next", "nuxt", "nodejs", "deno", "bun",
+    "webapp", "web-app", "webserver", "appserver", "application", "core", "public", "private", "internal", "dev",
+    "stage", "staging", "prod", "production", "demo", "sandbox", "mock", "stub", "fake",
 })
 
 # Universal public infrastructure whose hostnames identify NOBODY (the same for
@@ -184,6 +197,13 @@ UNIVERSAL_URL_HOSTS = frozenset({
     "docker.com", "docker.io", "dockerproject.org",   # public Docker package hosts (apt.dockerproject.org, e7e90c3b)
     "loopj.com", "square.github.io", "squareup.com", "greenrobot.org",   # Android OSS library homes in vendored licence headers (87753d70)
     "pytorch.org", "arxiv.org", "tensorflow.org", "huggingface.co", "anaconda.org", "conda.io",   # ML package hosts / paper links (ea902925)
+    "turbo.build", "turborepo.org", "nx.dev", "lerna.js.org", "pnpm.io", "yarnpkg.com", "classic.yarnpkg.com",   # monorepo tool schema/doc URLs (be9a6e28: `turbo.build/schema.json`)
+    # documentation placeholder domains an author writes INSTEAD of a real host (`site.com`, `s3.provider.com` in a
+    # README, 2b5a2444): they identify nobody and masking them only garbles the docs
+    "site.com", "mysite.com", "yoursite.com", "domain.com", "mydomain.com", "yourdomain.com", "your-domain.com",
+    "my-domain.com", "example.dev", "example.app", "example.io", "example.local", "example.test", "test.com",
+    "foo.com", "bar.com", "foo.bar", "provider.com", "somedomain.com", "some-domain.com", "yourcompany.com",
+    "company.com", "yourapp.com", "myapp.com", "your-app.com", "my-app.com", "placeholder.com",
 })
 
 # EXACT hosts (no subdomain match): their PARENT domain is multi-tenant, so only this one host is kept —

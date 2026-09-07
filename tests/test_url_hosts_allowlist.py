@@ -44,3 +44,19 @@ def test_keep_names_match_the_registrable_label():
     assert not _is_kept_url_host("hubspot-tools.acmeclient.ru", keep)
     assert _is_kept_url_host("aka.ms", set())
 
+
+
+@pytest.mark.parametrize("host", [
+    # compose / dev-stack service names (be9a6e28, 2b5a2444: `storefront`, `payload`, `cms` became <hash>.example.invalid)
+    "storefront", "payload", "cms", "strapi", "keycloak", "meilisearch", "php-fpm", "mailpit", "staging",
+    # monorepo tool schema URL and documentation placeholder domains (`turbo.build/schema.json`, `site.com`, `s3.provider.com`)
+    "turbo.build", "site.com", "s3.provider.com", "api.yourdomain.com", "example.dev",
+])
+def test_generic_service_names_and_doc_placeholders_are_kept(host):
+    assert _is_kept_url_host(host, set())
+
+
+@pytest.mark.parametrize("host", ["jenkins-acmecorp", "acmecorp-db", "site.acmecorp.com", "s3.acmecorp-cloud.com", "storefront01"])
+def test_distinctive_machine_and_company_hosts_stay_masked(host):
+    """The generic set is exact-match: a distinctive machine name or a company subdomain is still a finding."""
+    assert not _is_kept_url_host(host, set())
