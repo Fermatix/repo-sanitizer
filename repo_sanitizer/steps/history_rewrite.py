@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import repo_sanitizer
+from repo_sanitizer.detectors.secrets import looks_like_code_expression
 from repo_sanitizer.context import RunContext
 from repo_sanitizer.detectors.secrets import (
     _read_gitleaks_report,
@@ -232,6 +233,9 @@ def _collect_secret_literals(ctx: RunContext) -> list[str]:
     except Exception as e:  # noqa: BLE001 — collection is best-effort (gate backstops)
         logger.warning("full-history gitleaks pass failed (continuing): %s", e)
 
+    # a gitleaks generic hit on SOURCE CODE (`settings.WEBDEV_SDK_API_KEY`, `os.environ.get`) is not a literal to scrub:
+    # stamped byte-exact over every use it broke three identifiers in 5d5c9b5c
+    secrets = {v for v in secrets if not looks_like_code_expression(v)}
     return _filter_literals(work, [s for s in secrets if len(s) >= 5], secret=True)
 
 

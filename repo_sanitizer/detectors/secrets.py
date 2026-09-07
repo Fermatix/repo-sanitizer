@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -277,6 +278,8 @@ class SecretsDetector(Detector):
             end_col = item.get("EndColumn", 0)
             offset_start = _find_offset(target.content, start_line, start_col)
             offset_end = _find_offset(target.content, end_line, end_col)
+            if looks_like_code_expression(secret, target.content[offset_end:offset_end + 1]):
+                continue
             if self._in_zones(target, offset_start, offset_end):
                 findings.append(
                     Finding(
@@ -297,6 +300,24 @@ class SecretsDetector(Detector):
         if not target.is_zoned:
             return True
         return any(z.start <= start and end <= z.end for z in target.zones)
+
+
+_IDENT_PATH = re.compile(r"^[a-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$")
+_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
+
+
+def looks_like_code_expression(secret: str, following: str = "") -> bool:
+    """A gitleaks generic-api-key hit whose VALUE is source code, not a credential: a dotted attribute path off a
+    lowercase object (`api_key = settings.WEBDEV_SDK_API_KEY`, `password = os.environ.get`) or an identifier immediately
+    followed by `(` / `[` (a call or subscript: `password=cfg.get("password")`). 5d5c9b5c: the exact-literal scrubber then
+    stamped REDACTED_<hash> over that identifier in EVERY file that used it — a build break (a call name and a settings
+    attribute vanished), not a leak. A real token has digits and mixed case: a value with 4+ digits is never code."""
+    s = (secret or "").strip()
+    if not s or sum(ch.isdigit() for ch in s) >= 4:
+        return False
+    if _IDENT_PATH.match(s):
+        return True
+    return following[:1] in ("(", "[") and _IDENT.match(s) is not None
 
 
 def _read_gitleaks_report(report_file: Path, *, context: str, stderr: str = "") -> list:

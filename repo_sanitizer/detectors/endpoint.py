@@ -204,6 +204,7 @@ UNIVERSAL_URL_HOSTS = frozenset({
     "my-domain.com", "example.dev", "example.app", "example.io", "example.local", "example.test", "test.com",
     "foo.com", "bar.com", "foo.bar", "provider.com", "somedomain.com", "some-domain.com", "yourcompany.com",
     "company.com", "yourapp.com", "myapp.com", "your-app.com", "my-app.com", "placeholder.com",
+    "cbr.ru",   # Central Bank of Russia public rate feed (1c14f1b1: a currency-updater extension lost its feed URL)
 })
 
 # EXACT hosts (no subdomain match): their PARENT domain is multi-tenant, so only this one host is kept —

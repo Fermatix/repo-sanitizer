@@ -14,18 +14,23 @@ def apply_redactions(
     Replaces spans in reverse order to preserve offsets.
     Returns (redacted_content, manifest_entries).
     """
-    sorted_findings = sorted(findings, key=lambda f: f.offset_start, reverse=True)
+    # Overlapping spans from two detectors on one value (EndpointDetector host + RegexPIIDetector internal_corp_url on the
+    # same URL) used to be applied one after the other: the second replacement landed at offsets computed on the ORIGINAL
+    # text, producing `http://<hash>.example.invalidCTED_URL_` markers and eating the quote that closed the literal
+    # (5d5c9b5c CSRF_TRUSTED_ORIGINS, 2c15624d). Resolve first: the LONGEST span wins, any span intersecting an accepted
+    # one is dropped (an identical span is the same finding twice). Then apply in reverse offset order as before.
+    accepted: list[Finding] = []
+    for finding in sorted(findings, key=lambda f: (-(f.offset_end - f.offset_start), f.offset_start)):
+        a, b = finding.offset_start, finding.offset_end
+        if any(a < g.offset_end and g.offset_start < b for g in accepted):
+            continue
+        accepted.append(finding)
+    sorted_findings = sorted(accepted, key=lambda f: f.offset_start, reverse=True)
 
-    seen_spans: set[tuple[int, int]] = set()
     manifest = []
     result = content
 
     for finding in sorted_findings:
-        span = (finding.offset_start, finding.offset_end)
-        if span in seen_spans:
-            continue
-        seen_spans.add(span)
-
         original = result[finding.offset_start : finding.offset_end]
         replacement = _get_replacement(salt, finding)
 
