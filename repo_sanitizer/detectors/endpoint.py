@@ -30,10 +30,16 @@ _GENERIC_INTERNAL_HOSTS = frozenset({
 })
 
 
+# the framework env-file convention with a mode segment: `.env.production.local`, `.env.development.local`, `.env.test.local`
+# (the stock create-next-app .gitignore) read as `<mode>.local` hosts and every Next.js repo tripped the ENDPOINTS gate (ec47e8c1)
+_ENV_FILE_HOST = re.compile(r"^env(?:\.[a-z0-9_-]{1,32}){1,2}\.local$")
+
+
 def _is_generic_internal_host(domain: str) -> bool:
-    """True for the standard non-identifying internal hostnames above + the k8s
-    in-cluster service suffix `*.svc.cluster.local`."""
-    return domain in _GENERIC_INTERNAL_HOSTS or domain.endswith(".svc.cluster.local")
+    """True for the standard non-identifying internal hostnames above, the framework `env.<mode>.local` file names and
+    the k8s in-cluster service suffix `*.svc.cluster.local`."""
+    d = domain.lower()
+    return d in _GENERIC_INTERNAL_HOSTS or d.endswith(".svc.cluster.local") or _ENV_FILE_HOST.match(d) is not None
 
 # Dotted IPv4 quad. The lookarounds (not the \b shorthand) ensure an adjacent
 # '.digit' suppresses the match, so the leading quad of a version string or OID
