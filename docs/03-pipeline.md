@@ -325,14 +325,23 @@ A gate passes if its check produces zero failing items. `all_passed` is `True` o
 
 **Implementation:** `repo_sanitizer/steps/package.py`
 
+**Rule — this step never creates a commit.** The shipped history is the partner's rewritten
+history and nothing else: no "Sanitized by repo-sanitizer" tip, no empty commit, no snapshot of
+the working tree appended on top of a branch. It is the same rule as for restoration commits —
+nothing the pipeline did may appear as a commit on top of the partner history (user decision,
+2026-09-18). Packaging reads refs only; it runs no `git add`, `git commit`, `reset` or `clean`.
+
 **Algorithm:**
 
-1. Verify the repository has at least one commit (empty repositories cannot be bundled).
-2. Stage any unstaged changes: `git add -A`.
-3. If there are changes to commit: `git commit -m "Sanitized by repo-sanitizer"`.
-4. Create bundle: `git bundle create output/sanitized.bundle --branches HEAD`
-5. Compute SHA-256 of the bundle file.
-6. Update `artifacts/result.json` with `bundle_sha256` and `bundle_path`.
+1. Verify the repository has at least one commit (empty repositories cannot be bundled →
+   `EmptyRepositoryError`).
+2. Measure the working-tree delta against HEAD — `git status --porcelain=v1 -z -uall` — **without
+   changing anything**. Counts go to `artifacts/result.json` (`working_tree_delta`), the paths to
+   `artifacts/working_tree_delta.json`; a non-empty delta is logged as a residual (WARNING).
+3. Create bundle: `git bundle create output/sanitized.bundle --branches HEAD --` (the trailing `--`
+   keeps HEAD a revision when the tree has a top-level `head/` path on a case-insensitive filesystem).
+4. Compute SHA-256 of the bundle file.
+5. Update `artifacts/result.json` with `bundle_sha256`, `bundle_path` and `working_tree_delta`.
 
 The ref set is owned by the **ref-reconcile step** (§3.9b), which runs after the history
 rewrite: it keeps every branch under `refs/heads/*` (with best-effort scrubbed names) and
@@ -340,13 +349,24 @@ deletes all tags, remote-tracking refs, and replace refs. Packaging therefore bu
 `--branches HEAD` — every branch plus HEAD — and **never `--all`**, which would re-include
 tags and `refs/remotes/*`.
 
+**Why the delta is reported, not committed.** git-filter-repo finishes the history rewrite (§3.9)
+with `git reset --hard`, so the working tree already equals the rewritten HEAD; whatever still
+differs was never part of the rewritten history — untracked files (`.DS_Store`), NFC/NFD or case
+duplicates of a path on APFS/NTFS, a stale leftover of the working-tree redaction pass (§3.5).
+Until 2026-09-18 the step committed exactly that delta (`git add -A` + `git commit --allow-empty
+-m "Sanitized by repo-sanitizer"`); the nine part-9 tips built this way carried no anonymization
+their parent commit lacked and had to be dropped by hand. The bundle is built from refs, so the
+working tree cannot leak into it. A redaction that exists **only** in the working tree is a gap in
+the history rewrite — add the literal or rule there (`_collect_person_literals`, the secret-literal
+plan) — never something to commit.
+
 The resulting bundle is a self-contained git archive. Recipients can clone it directly:
 
 ```bash
 git clone output/sanitized.bundle my-repo
 ```
 
-**Output:** `output/sanitized.bundle`
+**Output:** `output/sanitized.bundle` (+ `artifacts/working_tree_delta.json`)
 
 ---
 
@@ -383,7 +403,8 @@ ctx.timings.setdefault("gates", {})[gate_name] = elapsed
 │   ├── history_rewrite_log.txt        # Step 7: git-filter-repo stdout/stderr
 │   ├── history_scan_post.json         # Step 8: commit metadata findings (after rewrite)
 │   ├── history_blob_scan_post.json    # Step 8b: blob findings (after rewrite)
-│   └── result.json                    # Step 9/10: gate results, timings, bundle SHA256
+│   ├── working_tree_delta.json        # Step 10: working tree vs HEAD residual (reported, never committed)
+│   └── result.json                    # Step 9/10: gate results, timings, bundle SHA256, working_tree_delta
 │
 └── output/
     └── sanitized.bundle               # Step 10: deliverable git bundle

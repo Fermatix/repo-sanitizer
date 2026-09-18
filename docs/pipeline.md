@@ -117,7 +117,7 @@ Exit code `0` = all gates passed. Exit code `1` = one or more gates failed.
 
 ### Step 10 — Package
 
-Creates `output/sanitized.bundle` via `git bundle create`. The SHA-256 of the bundle is written to `result.json`.
+Creates `output/sanitized.bundle` via `git bundle create`. The SHA-256 of the bundle is written to `result.json`. Packaging never creates a commit: the bundle is built from the rewritten refs (`--branches HEAD --`), and a working tree that still differs from HEAD is reported in `artifacts/working_tree_delta.json` as a residual, not committed (no pipeline commit may sit on top of the partner history).
 
 ---
 
