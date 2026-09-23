@@ -3,7 +3,7 @@
 Sanitize Git repositories and export bundles with rewritten history. Detection
 and replacement follow a rulepack: file policies, patterns and dictionaries.
 
-## Required: Installation
+## Installation
 
 Use macOS or Linux. You need Git, an SSH client, OpenSSL, `gitleaks` and `uv`.
 Python 3.11+ is supported; these commands use Python 3.13, installed by `uv` if
@@ -47,7 +47,7 @@ uv sync --locked --python 3.13
 Run subsequent commands from this directory. `uv run` uses the project
 environment; activation is unnecessary.
 
-## Required: Quickstart
+## Quickstart
 
 Create `repos.txt` with one SSH URL per line. Your SSH key must have read access
 to these repositories:
