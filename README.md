@@ -1,341 +1,266 @@
-# repo-sanitizer
+# Repository Sanitizer
 
-CLI tool for anonymizing Git repositories before sharing with third parties.
-
-Takes a local path or URL as input. Produces a `git bundle` with fully rewritten history — no PII, secrets, or internal infrastructure data in any commit on any branch.
-
----
-
-## Quick Start
-
-```bash
-# 1. Get the tool (not published to PyPI — clone it and let uv install it)
-git clone https://github.com/Fermatix/repo-sanitizer
-cd repo-sanitizer
-uv sync                       # creates ./.venv with the project + dependencies
-
-# 2. Set salt (required — never passed via CLI)
-export REPO_SANITIZER_SALT="$(openssl rand -hex 32)"
-
-# 3. Sanitize  (run via `uv run` from inside the repo)
-uv run repo-sanitizer sanitize ./my-project \
-  --rulepack ./examples/rules \
-  --out ./sanitized-output
-
-# 4. Check result
-cat sanitized-output/artifacts/result.json
-
-# 5. Share the bundle
-git clone sanitized-output/output/sanitized.bundle ./verification
-```
-
-> `repo-sanitizer` is **not on PyPI** — `pip install repo-sanitizer` /
-> `uv add repo-sanitizer` will fail. Run it from a clone with `uv run`
-> (which installs the project on first use), or `pip install .` into your
-> own environment.
-
-### Batch (a list of local repos / bundles / URLs)
-
-To sanitize many repositories in one run, put one source per line in a text
-file (local paths, `.bundle` files, or Git URLs — `#` comments and blank lines
-ignored; see [`repos.example.txt`](./repos.example.txt)) and use `sanitize-batch`:
-
-```bash
-export REPO_SANITIZER_SALT="$(openssl rand -hex 32)"   # same salt across runs
-
-repo-sanitizer sanitize-batch ./repos.txt \
-  --rulepack ./examples/rules \
-  --out ./out \
-  --workers 8
-```
-
-**Before a batch run:** install [`gitleaks`](https://github.com/gitleaks/gitleaks#installing)
-(required — the run aborts up front if it is missing), and make sure you have
-plenty of free disk: each repo is a **full clone with history**, so a few
-hundred repos is tens of GB.
-
-Each repo's result lands in `./out/<key>/` (same layout as a single
-`sanitize`). A `./out/batch_summary.json` is written and
-`./out/.sanitize_batch_state.json` lets a re-run skip finished repos (add
-`--retry-failed` to redo failures). This is local-only — no GitLab discovery
-or push (for that, see `repo-sanitizer batch run`).
-
-NER is **off by default** for batch runs (no GPU/model load) — pass
-`--ner-scope head` (or `all`) to enable name/org detection, which starts one
-shared NER service for the whole batch.
-
-**Authentication.** Before any work starts, a pre-flight checks access to each
-remote URL, in order: (1) existing HTTPS credentials (credential helper or a
-token in the URL); (2) **SSH** with your keys (the URL is cloned over SSH if
-that works); (3) if a terminal is attached, it prompts once per host for a
-token. If a repo still can't be reached, the run aborts up front (listing
-them) instead of failing workers mid-run — pass `--no-preflight` to skip the
-check. For a fully unattended run, configure credentials beforehand
-(token-in-URL `https://oauth2:<TOKEN>@host/...`, a credential helper, or an
-ssh-agent key).
-
----
-
-## Features
-
-| What gets detected | How |
-|---|---|
-| Secrets (API keys, tokens, passwords) | gitleaks |
-| Emails, phone numbers, IPv4 addresses, JWTs, URLs | Regex patterns |
-| Internal domains and private IPs (RFC 1918) | EndpointDetector |
-| Names and organizations | NER transformer model |
-| Custom terms (project codenames, client names) | Dictionary (Aho-Corasick) |
-
-| What gets rewritten | Scope |
-|---|---|
-| Working tree files | Comments and string literals only (tree-sitter zones) |
-| Commit metadata | Author name, email, commit message — all branches |
-| File content in history | All unique blobs across all branches |
-| Denied files | Removed from every commit |
-
-| Output | |
-|---|---|
-| `sanitized.bundle` | Git bundle, cloneable |
-| `result.json` | Gate results, SHA-256 of bundle, timings |
-| Scan reports | Pre/post findings for working tree and history |
-
-All replacements are **deterministic**: same salt + value → same output every time.
-
----
-
-## Config files and credentials (rulepack 1.1.0)
-
-The bundled `examples/rules` keeps application config modules (`config.*`,
-`settings.*`, `application.*`, `database.*`, including `config.prod.yaml`).
-It enables `mask_config_values: true`: an additional key-name pass replaces
-literal passwords, API keys, tokens and other sensitive config values with
-`REDACTED` in the working tree and throughout every shipped branch's history.
-Keys, quotes, environment references, placeholders and ordinary settings are
-preserved. Existing secret/PII/endpoint detectors still run.
-
-Files such as `.env*`, `*.key`, `*.pem`, SSH private keys, `local_settings.*`,
-`application-prod.*` and `*.local` are still deleted. The configured allow
-suffixes (`.example`, `.sample`, `.template`, `.dist`, `.defaults`) take priority:
-examples survive and their underlying config format is used for masking.
-
-The extra pass handles UTF-8/CP1251 text up to 2 MiB per file/blob. Its path
-classifier excludes vendored code, build output, lockfiles and translations.
-Unsupported formats such as `settings.gradle`, `settings.styl`, `config.sh`,
-`database.sql`, `.rs`, `.tsx` and `.vue` receive only the existing detector passes.
-Binary/NUL-containing, larger or undecodable candidates are skipped by this
-extra pass. Aggregate counters (no original values or paths) are written to
-`artifacts/config_values_working_tree.json` and `artifacts/config_values_history.json`.
-Excluded or unsupported config paths are counted in `skipped_path`;
-history counts unique `(blob, path, mode)` pairs, while working-tree counts include
-convergence visits. A nonzero skip counter requires inspection; these counters
-do not certify absence of secrets in skipped content.
-
-This applies to `sanitize`, `sanitize-batch` and `batch run`, with or without
-`--gate`. Other rulepacks retain the old extra-pass behavior unless they set
-`mask_config_values: true`; omission defaults to `false`.
-
-Update an existing clone before the next run:
-
-```bash
-git pull --ff-only origin main
-uv sync
-cat examples/rules/VERSION  # 1.1.0 or newer
-```
-
-Previously removed configs can only be recovered by sanitizing the **original**
-repository/bundle again. Use a fresh output/state location for that rerun;
-batch state otherwise skips repositories already marked completed.
-
----
+Sanitize Git repositories and export bundles with rewritten history. Detection
+and replacement follow a rulepack: file policies, patterns and dictionaries.
 
 ## Installation
 
-### Requirements
+Use macOS or Linux. You need Git, an SSH client, OpenSSL, `gitleaks` and `uv`.
+Python 3.11+ is supported; these commands use Python 3.13, installed by `uv` if
+needed.
 
-| Tool | Version | Purpose |
-|---|---|---|
-| Python | ≥ 3.11 | Runtime |
-| [gitleaks](https://github.com/gitleaks/gitleaks) | any | Secret detection (required) |
-| git | ≥ 2.35 | Clone, log, bundle |
-
-### Python package
-
-`repo-sanitizer` is not published to PyPI. Install it from a clone of this
-repository:
+**macOS**, with [Homebrew](https://brew.sh/) installed:
 
 ```bash
-git clone https://github.com/Fermatix/repo-sanitizer
+brew install git uv gitleaks openssl
+```
+
+The SSH client is included with macOS.
+
+**Ubuntu / Debian**:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y git curl openssh-client ca-certificates openssl build-essential
+curl -LsSf https://astral.sh/uv/install.sh | sh
+. "$HOME/.local/bin/env"
+mkdir -p "$HOME/.local/bin"
+gitleaks_version=8.30.1
+gitleaks_arch="$(uname -m)"
+case "$gitleaks_arch" in
+  x86_64) gitleaks_arch=x64 ;;
+  aarch64) gitleaks_arch=arm64 ;;
+esac
+curl -fL "https://github.com/gitleaks/gitleaks/releases/download/v${gitleaks_version}/gitleaks_${gitleaks_version}_linux_${gitleaks_arch}.tar.gz" \
+  | tar -xz -C "$HOME/.local/bin" gitleaks
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+**Then, on either platform**:
+
+```bash
+git clone https://github.com/Fermatix/repo-sanitizer.git
 cd repo-sanitizer
-
-# With uv (recommended) — creates ./.venv, run commands with `uv run`
-uv sync
-uv run repo-sanitizer --help
-
-# Or with all tree-sitter grammars (165+ languages)
-uv sync --extra grammars
-
-# With pip, into your own environment (from the repo root)
-pip install .
-# pip install ".[grammars]"   # with all grammars
+uv sync --locked --python 3.13
 ```
 
-### gitleaks
+Run subsequent commands from this directory. `uv run` uses the project
+environment; activation is unnecessary.
+
+## Quickstart
+
+Create `repos.txt` with one SSH URL per line. Your SSH key must have read access
+to these repositories:
+
+```text
+# Blank lines and lines starting with # are ignored
+
+git@git.example.com:group/service-api.git
+git@git.example.com:group/mobile-app.git
+```
 
 ```bash
-brew install gitleaks        # macOS
-sudo apt install gitleaks    # Linux
-scoop install gitleaks       # Windows
+# 1. Set the salt once for this run
+export REPO_SANITIZER_SALT="$(openssl rand -hex 32)"
+
+# 2. Sanitize with the bundled rules
+uv run repo-sanitizer sanitize-batch ./repos.txt \
+  --rulepack ./examples/rules \
+  --out ./sanitized-output
+
+# 3. Check results
+cat sanitized-output/batch_summary.json
 ```
 
-### NER model (optional, downloaded automatically)
-
-On first run, `transformers` downloads `Davlan/bert-base-multilingual-cased-ner-hrl` (~700 MB) to `~/.cache/huggingface/`. See [docs/offline.md](docs/offline.md) for air-gapped setup.
-
-> **GPU requirement:** NER inference (`--ner-device cuda`) requires a GPU with at least **12 GB VRAM** (e.g. NVIDIA RTX 3080 Ti 12 GB or better). On devices with less VRAM, use `--ner-device cpu` or run a shared `ner-service` on a capable machine.
+Bundles are written to `sanitized-output/<repository>/output/sanitized.bundle`.
+Check that all intended repositories are `done`, with `failed` and `pending` both
+zero. Review bundles before sharing; keep the salt and reports private.
 
 ---
 
-## CLI
+## Optional reference
 
-| Command | Description |
-|---|---|
-| `sanitize <source>` | Full pipeline: clone → scan → redact → rewrite history → bundle |
-| `scan <source>` | Read-only audit — no changes made |
-| `gate <source>` | Run the leak/verification gates on an already-sanitized bundle |
-| `install-grammars` | Verify and install tree-sitter grammar packages |
-| `batch run` | Process thousands of GitLab repositories in parallel |
-| `batch list` | Dry-run: enumerate repositories without processing |
-| `ner-service` | Start a shared NER inference service (foreground); multiple `sanitize`/`scan` runs share one GPU process |
+### Additional parsers
 
-### `sanitize` options
-
-| Option | Default | Description |
-|---|---|---|
-| `--rulepack PATH` | — | Path to rulepack directory (required) |
-| `--out PATH` | — | Output directory (required) |
-| `--rev REV` | `HEAD` | Git revision for working tree checkout |
-| `--salt-env VAR` | `REPO_SANITIZER_SALT` | Name of env variable holding the salt |
-| `--max-file-mb N` | `20` | Skip files larger than N MB |
-| `--history-since DATE` | — | Limit history scan start date (git format: `2024-01-01`) |
-| `--history-until DATE` | — | Limit history scan end date |
-| `--ner-device DEVICE` | `cpu` | NER device: `cpu` \| `cuda` \| `cuda:0` \| `auto` |
-| `--ner-service-url URL` | — | URL of a running `ner-service`. Skips local model loading; multiple runs share one service |
-| `--gate` / `--no-gate` | `--no-gate` | Run the leak/verification gates and let them decide the exit code (`--gate`), or skip them and succeed as soon as the bundle is packaged (`--no-gate`, default) |
-
-**Exit codes:** with `--no-gate` (default): `0` = the sanitized bundle was produced, `1` = a step failed. With `--gate`: `0` = all blocking gates passed, `1` = one or more failed.
-
-### `scan` options
-
-Same options as `sanitize`. Produces `inventory.json`, `scan_report_pre.json`, `history_scan_pre.json`, `history_blob_scan_pre.json`. No files are modified.
-
-### `gate` options
-
-Same options as `sanitize` (minus `--gate`). Runs the gate battery against an already-sanitized `sanitized.bundle` (no redaction or history rewrite), writes `artifacts/result.json`, and exits `0` when all blocking gates pass, `1` otherwise. Use it to re-check a handed-off bundle before continuing work on it.
-
----
-
-## Documentation
-
-| Doc | Contents |
-|---|---|
-| [docs/pipeline.md](docs/pipeline.md) | All 10 pipeline steps, detectors, replacement masks, artifacts |
-| [docs/rulepack-authoring.md](docs/rulepack-authoring.md) | Writing policies.yaml, extractors.yaml, regex patterns, dictionaries |
-| [docs/batch.md](docs/batch.md) | Processing 2500+ GitLab repositories in parallel |
-| [docs/architecture.md](docs/architecture.md) | Internal design: RunContext, data flow, history rewrite, determinism |
-| [docs/offline.md](docs/offline.md) | Air-gapped / offline environment setup |
-
----
-
-## Development
+The `grammars` extra supplies additional tree-sitter language parsers:
 
 ```bash
-git clone <repo-url> && cd repo-sanitizer
-uv sync --dev
-
-# Fast unit tests (no external tools required)
-uv run pytest tests/test_rulepack.py tests/test_redaction.py \
-              tests/test_inventory.py tests/test_detectors.py \
-              tests/test_extractors.py -v
-
-# All tests (NER and integration tests skip if dependencies missing)
-uv run pytest -v
-
-# Run CLI from source
-uv run repo-sanitizer --help
+uv sync --locked --extra grammars
 ```
 
-### Project structure
+### Parallelism
 
-```
-repo_sanitizer/
-├── cli.py                    # Entry point (Typer): sanitize, scan, install-grammars, batch
-├── context.py                # RunContext: salt, paths, rulepack, findings, timings
-├── pipeline.py               # Step orchestrator (run_sanitize / run_scan_only)
-├── rulepack.py               # Rulepack loading and validation
-├── steps/
-│   ├── fetch.py              # Clone / copy
-│   ├── inventory.py          # File tree walk and classification
-│   ├── scan.py               # Pre-scan and post-scan of working tree
-│   ├── redact.py             # Apply replacements
-│   ├── history_scan.py       # Scan commit metadata (all branches)
-│   ├── history_blob_scan.py  # Scan file content blobs (all branches)
-│   ├── history_rewrite.py    # git-filter-repo
-│   ├── gate.py               # Gate checks
-│   └── package.py            # git bundle create
-├── detectors/
-│   ├── base.py               # Detector ABC, Finding, ScanTarget, Zone
-│   ├── secrets.py            # gitleaks wrapper
-│   ├── regex_pii.py          # Email, phone, IP, JWT, URL
-│   ├── dictionary.py         # Aho-Corasick over dict files
-│   ├── endpoint.py           # Internal domains, private IPs
-│   └── ner.py                # Transformer NER: PER, ORG (local + HTTP mode)
-├── extractors/
-│   ├── treesitter.py         # Tree-sitter extractor
-│   └── fallback.py           # Regex fallback for comments
-├── redaction/
-│   ├── replacements.py       # HMAC masks
-│   ├── applier.py            # Span replacement in files
-│   └── git_identity.py       # Author normalization
-└── batch/                    # Batch mode for thousands of repositories
-    ├── config.py
-    ├── gitlab_client.py
-    ├── ner_service.py
-    ├── worker.py
-    └── orchestrator.py
+The batch chooses its worker count automatically. Add `--workers 2` to the batch
+command to limit processing to two worker processes.
 
-examples/
-├── rules/                    # Example rulepack
-└── batch.yaml                # Example batch config
+### Verification
 
-scripts/
-└── run-batch.sh              # Background batch runner (systemd-run / nohup)
+Add `--gate` to a fresh sanitization run to enable the final verification checks.
+The CLI skips these checks by default. With `--gate`, a failed blocking check
+makes the run exit nonzero; a bundle may still exist when verification fails.
+
+To check an existing bundle independently:
+
+```bash
+uv run repo-sanitizer gate sanitized-output/service-api/output/sanitized.bundle \
+  --rulepack ./examples/rules --out audit-output/service-api --ner-scope off
+cat audit-output/service-api/artifacts/result.json
 ```
 
-### Adding a new detector
+Check that `all_passed` is `true`. Review advisory findings, skipped content and
+any remaining items in the scan reports. Passing gates describes the configured
+checks and detection scope, not a guarantee that every sensitive value was found.
 
-```python
-# repo_sanitizer/detectors/my_detector.py
-from repo_sanitizer.detectors.base import Category, Detector, Finding, ScanTarget, Severity
+Restore the bundle to inspect the rewritten code and history:
 
-class MyDetector(Detector):
-    def detect(self, target: ScanTarget) -> list[Finding]:
-        findings = []
-        # ... detection logic ...
-        return findings
+```bash
+git clone sanitized-output/service-api/output/sanitized.bundle verification-service-api
 ```
 
-Register in `steps/scan.py` → `build_detectors()`.
+### Resume and rerun
 
----
+Keep the same salt for related runs; do not regenerate it when resuming. Store it
+in your private secret store if you need to reuse it in another shell. The same
+salt and input value produce consistent replacements.
 
-## Limitations
+Rerun the sanitization command with the same list, rules and salt to resume. State is
+stored in `<out>/.sanitize_batch_state.json`; completed entries are skipped.
+Add `--retry-failed` to retry failed entries.
 
-The following are out of scope:
+Use a fresh output directory when the source, rules, salt or detection settings
+change. Resume does not refresh completed results. Output keys use the repository
+basename; duplicate names receive suffixes such as `-2`. Keep the list stable
+when resuming so those keys still refer to the same sources.
 
-- PR/MR data from GitHub/GitLab API
-- Wiki repositories
-- LFS objects (pointer files are deleted; LFS content is not fetched)
-- Recursive submodule processing (`.gitmodules` URLs are caught by EndpointDetector)
-- Renaming files or directories whose paths contain PII
-- EXIF metadata in images
-- Commit signatures (stripped during history rewrite, not analyzed)
+### Other inputs
+
+HTTPS URLs, local Git repositories and Git bundles can also appear in `repos.txt`:
+
+```text
+https://github.com/example-org/mobile-app.git
+
+# Without an SSH key, include your username and token in the HTTPS URL
+https://username:TOKEN@git.example.com/group/legacy-service.git
+
+/home/user/repos/internal-tool
+/home/user/bundles/service-api.bundle
+```
+
+For private HTTPS repositories, a credential helper is another option. Batch
+preflight tries existing access, then SSH; in an interactive terminal it can
+ask for HTTPS credentials. Unresolved access stops the batch before processing.
+Workers do not prompt. `--no-preflight` skips this initial check.
+
+Inputs must be Git repositories or Git bundles; Mercurial is not supported.
+
+For one repository, use `sanitize` with the same rulepack and salt:
+
+```bash
+uv run repo-sanitizer sanitize git@git.example.com:group/service-api.git \
+  --rulepack ./examples/rules --out sanitized-output/single --ner-scope off --gate
+```
+
+### NER
+
+Named-entity recognition (NER) adds model-based name detection. Before enabling
+the bundled model, download it:
+
+```bash
+uv run hf download Babelscape/wikineural-multilingual-ner
+```
+
+The model is cached locally. See [offline setup](docs/offline.md) for preparing
+an environment without network access.
+
+`sanitize-batch` defaults to `--ner-scope off`. Single-repository `sanitize`,
+`scan` and `gate` default to `head`. The available scopes are:
+
+| Scope | Coverage |
+|---|---|
+| `off` | Rule-based detectors only; no NER model loaded |
+| `head` | NER on the checked-out working tree |
+| `all` | Also scan commit metadata and historical file blobs with NER |
+
+The bundled rulepack selects `Babelscape/wikineural-multilingual-ner` and
+`cuda:0`. Override the device explicitly on a machine without CUDA:
+
+```bash
+uv run repo-sanitizer sanitize-batch repos.txt \
+  --rulepack ./examples/rules --out sanitized-output/ner \
+  --workers 2 --ner-scope head --ner-device cpu --gate
+```
+
+A batch with NER enabled starts one shared service. `--ner-service-url URL` uses
+an existing service; `--ner-service-port` changes the automatically started
+service's port (default `8765`). Whole-history NER can take substantially longer.
+NER-only names detected in history are reported for follow-up, not automatically
+rewritten throughout history.
+
+### Rules and output scope
+
+The Quickstart uses `examples/rules` directly. For custom policies, patterns or
+dictionaries, see [rulepack authoring](docs/rulepack-authoring.md) and pass your
+rulepack directory with `--rulepack`.
+
+The pipeline rewrites commit identities, configured sensitive values and
+matching historical content, and removes denied files. It preserves branches
+with sanitized names where needed; tags and other non-branch refs are removed.
+Commit hashes change. No repository is overwritten at its source.
+
+The bundled rulepack enables `mask_config_values: true`: an additional pass
+masks literal sensitive values in supported application config files while
+preserving keys, structure, environment references and ordinary settings.
+Files covered by deny rules, such as `.env`, private keys and environment-specific
+overlays, are removed unless an allowed example/template suffix applies.
+
+That extra config pass handles UTF-8/CP1251 text up to 2 MiB per file/blob.
+Unsupported or excluded paths, binary/NUL-containing, larger or undecodable
+candidates are skipped by this pass. Inspect its counters in
+`artifacts/config_values_working_tree.json` and
+`artifacts/config_values_history.json`. Other detectors still apply within their
+own scope and limits. Custom rulepacks must explicitly enable this config pass.
+
+Dictionary and brand findings can require a reviewed replacement map. `apply-map`
+applies that map to historical blobs, commit messages and paths. It is a separate
+step; a first-pass bundle can still have unresolved brand findings.
+
+Large or binary content may be skipped according to the rulepack. Git LFS object
+payloads, recursively processing submodules, wiki repositories and hosting API
+PR/MR metadata are outside this workflow. Repository builds are not verified by
+the sanitizer's gates.
+
+### Commands
+
+All commands below run through `uv run repo-sanitizer`. Use `<command> --help`
+for the current options.
+
+| Command | Purpose |
+|---|---|
+| `sanitize-batch <list>` | Process a list into local result directories |
+| `sanitize <source>` | Process one repository |
+| `scan <source>` | Write scan reports without redaction or history rewrite |
+| `gate <source>` | Check an already-sanitized repository or bundle |
+| `apply-map <source>` | Apply a supplied `--brand-map` to rewritten history |
+| `expand-variants` | Expand a name into spelling variants for a map |
+| `ner-service` | Run a shared NER service |
+| `batch list` / `batch run` | Discover/process GitLab repositories using a config |
+
+### Documentation
+
+| Document | Contents |
+|---|---|
+| [Pipeline](docs/pipeline.md) | Stages, detectors and artifacts |
+| [Rulepacks](docs/rulepack-authoring.md) | Policies, extractors, patterns and dictionaries |
+| [GitLab batch](docs/batch.md) | Discovery, parallel processing and delivery configuration |
+| [Architecture](docs/architecture.md) | Internal data flow and history rewriting |
+| [Offline setup](docs/offline.md) | Preparing dependencies and models without runtime downloads |
+
+### Development
+
+```bash
+uv sync --locked --extra grammars --group dev
+uv run pytest
+```
+
+Integration tests need Git and `gitleaks`. NER tests can load model weights;
+provide the corresponding cache or network access when running those tests.
