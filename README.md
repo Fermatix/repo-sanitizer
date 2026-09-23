@@ -1,8 +1,7 @@
 # Repository Sanitizer
 
 Sanitize Git repositories and export bundles with rewritten history. Detection
-and replacement follow a rulepack: file policies, patterns, dictionaries and
-optional named-entity recognition (NER).
+and replacement follow a rulepack: file policies, patterns and dictionaries.
 
 ## Required: Quickstart
 
@@ -48,30 +47,11 @@ export PATH="$HOME/.local/bin:$PATH"
 ```bash
 git clone https://github.com/Fermatix/repo-sanitizer.git
 cd repo-sanitizer
-uv sync --locked --python 3.13 --extra grammars
-git --version
-gitleaks version
-uv run repo-sanitizer --help
+uv sync --locked --python 3.13
 ```
 
 Run subsequent commands from this directory. `uv run` uses the project
-environment; activation is unnecessary. The `grammars` extra supplies additional
-tree-sitter language parsers.
-
-<details>
-<summary>Optional dependency: NER model</summary>
-
-The Quickstart uses the batch default, NER off. If you plan to enable NER with
-the bundled model, download it before processing:
-
-```bash
-uv run hf download Babelscape/wikineural-multilingual-ner
-```
-
-The model is cached locally. See [offline setup](docs/offline.md) for preparing
-an environment without network access. NER execution options are below.
-
-</details>
+environment; activation is unnecessary.
 
 ### 2. Prepare inputs
 
@@ -118,24 +98,16 @@ Use a new output directory for each batch or fresh recalculation:
 ```bash
 uv run repo-sanitizer sanitize-batch repos.txt \
   --rulepack rules-local \
-  --out sanitized-output/first \
-  --workers 2 \
-  --ner-scope off \
-  --gate
+  --out sanitized-output/first
 ```
 
 The command checks remote access, processes local clones and writes one result
 directory per repository. It does not change or push to the source repositories.
 
-`--gate` enables the final verification checks; the CLI defaults to skipping
-them. This run uses rule-based detectors and dictionaries, with NER explicitly
-off. Enable NER separately if you need model-based name detection.
-
 ### 4. Check and collect results
 
 ```bash
 cat sanitized-output/first/batch_summary.json
-cat sanitized-output/first/service-api/artifacts/result.json
 ```
 
 For the example list, the bundles are:
@@ -145,26 +117,51 @@ sanitized-output/first/service-api/output/sanitized.bundle
 sanitized-output/first/mobile-app/output/sanitized.bundle
 ```
 
-Before sharing a bundle:
-
-- Check that every intended repository has `status: "done"` in the batch summary,
-  with `failed` and `pending` both zero.
-- Check each `artifacts/result.json`: `all_passed` must be `true`. Review advisory
-  findings, skipped content and any remaining items in the scan reports.
-- Restore the bundle and inspect the rewritten code and history:
-
-```bash
-git clone sanitized-output/first/service-api/output/sanitized.bundle verification-service-api
-```
-
-A bundle may exist even when verification fails. Passing gates describes the
-configured checks and detection scope, not a guarantee that every sensitive
-value was found. Share the checked `output/sanitized.bundle` files; keep the salt,
-reports and working directories private.
+Check that every intended repository has `status: "done"` in the batch summary,
+with `failed` and `pending` both zero. This confirms that the bundles were created;
+it does not certify that every sensitive value was removed. Review the output
+before sharing it. Keep the salt, reports and working directories private.
 
 ---
 
 ## Optional reference
+
+### Additional parsers
+
+The `grammars` extra supplies additional tree-sitter language parsers:
+
+```bash
+uv sync --locked --extra grammars
+```
+
+### Parallelism
+
+The batch chooses its worker count automatically. Add `--workers 2` to the batch
+command to limit processing to two worker processes.
+
+### Verification
+
+Add `--gate` to a fresh sanitization run to enable the final verification checks.
+The CLI skips these checks by default. With `--gate`, a failed blocking check
+makes the run exit nonzero; a bundle may still exist when verification fails.
+
+To check an existing bundle independently:
+
+```bash
+uv run repo-sanitizer gate sanitized-output/first/service-api/output/sanitized.bundle \
+  --rulepack rules-local --out audit-output/service-api --ner-scope off
+cat audit-output/service-api/artifacts/result.json
+```
+
+Check that `all_passed` is `true`. Review advisory findings, skipped content and
+any remaining items in the scan reports. Passing gates describes the configured
+checks and detection scope, not a guarantee that every sensitive value was found.
+
+Restore the bundle to inspect the rewritten code and history:
+
+```bash
+git clone sanitized-output/first/service-api/output/sanitized.bundle verification-service-api
+```
 
 ### Resume and rerun
 
@@ -206,6 +203,16 @@ uv run repo-sanitizer sanitize git@git.example.com:group/service-api.git \
 ```
 
 ### NER
+
+Named-entity recognition (NER) adds model-based name detection. Before enabling
+the bundled model, download it:
+
+```bash
+uv run hf download Babelscape/wikineural-multilingual-ner
+```
+
+The model is cached locally. See [offline setup](docs/offline.md) for preparing
+an environment without network access.
 
 `sanitize-batch` defaults to `--ner-scope off`. Single-repository `sanitize`,
 `scan` and `gate` default to `head`. The available scopes are:
@@ -260,7 +267,7 @@ payloads, recursively processing submodules, wiki repositories and hosting API
 PR/MR metadata are outside this workflow. Repository builds are not verified by
 the sanitizer's gates.
 
-### Commands and checks
+### Commands
 
 All commands below run through `uv run repo-sanitizer`. Use `<command> --help`
 for the current options.
@@ -275,15 +282,6 @@ for the current options.
 | `expand-variants` | Expand a name into spelling variants for a map |
 | `ner-service` | Run a shared NER service |
 | `batch list` / `batch run` | Discover/process GitLab repositories using a config |
-
-With `--gate`, sanitization exits nonzero if a blocking check fails or processing
-fails. Without it, success means a bundle was packaged; it does not mean gates
-ran. The separate `gate` command always runs checks:
-
-```bash
-uv run repo-sanitizer gate sanitized-output/first/service-api/output/sanitized.bundle \
-  --rulepack rules-local --out audit-output/service-api --ner-scope off
-```
 
 ### Documentation
 
