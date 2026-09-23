@@ -3,13 +3,7 @@
 Sanitize Git repositories and export bundles with rewritten history. Detection
 and replacement follow a rulepack: file policies, patterns and dictionaries.
 
-## Required: Quickstart
-
-Follow these four steps to process a repository list and check the results.
-Everything after the **Optional reference** divider covers additional inputs,
-settings and commands.
-
-### 1. Install dependencies
+## Required: Installation
 
 Use macOS or Linux. You need Git, an SSH client, OpenSSL, `gitleaks` and `uv`.
 Python 3.11+ is supported; these commands use Python 3.13, installed by `uv` if
@@ -53,10 +47,10 @@ uv sync --locked --python 3.13
 Run subsequent commands from this directory. `uv run` uses the project
 environment; activation is unnecessary.
 
-### 2. Prepare inputs
+## Required: Quickstart
 
-Create `repos.txt` with one Git SSH URL per line. This Quickstart assumes your SSH
-key is configured and has read access to the repositories:
+Create `repos.txt` with one SSH URL per line. Your SSH key must have read access
+to these repositories:
 
 ```text
 # Blank lines and lines starting with # are ignored
@@ -65,62 +59,22 @@ git@git.example.com:group/service-api.git
 git@git.example.com:group/mobile-app.git
 ```
 
-Replace the examples with your repositories. Exact duplicate lines are ignored.
-
-Create a rulepack for the run:
-
 ```bash
-cp -R examples/rules rules-local
+# 1. Set the salt once for this run
+export REPO_SANITIZER_SALT="$(openssl rand -hex 32)"
+
+# 2. Sanitize with the bundled rules
+uv run repo-sanitizer sanitize-batch ./repos.txt \
+  --rulepack ./examples/rules \
+  --out ./sanitized-output
+
+# 3. Check results
+cat sanitized-output/batch_summary.json
 ```
 
-Review `rules-local/policies.yaml`, `extractors.yaml`, `regex/` and `dict/` for the
-repositories being processed. Dictionaries describe domains, organizations,
-clients and project names to detect. The bundled rules are a starting point;
-[rulepack authoring](docs/rulepack-authoring.md) explains customization.
-
-Create a salt once and load it into the environment:
-
-```bash
-mkdir -p ../secrets
-test -s ../secrets/repo-sanitizer-salt || \
-  (umask 077; openssl rand -hex 32 > ../secrets/repo-sanitizer-salt)
-export REPO_SANITIZER_SALT="$(cat ../secrets/repo-sanitizer-salt)"
-```
-
-Keep that file private and reuse it for related runs. Salted replacements remain
-consistent when the salt and input value stay the same. In a new shell, repeat
-the `export` command to load the saved salt.
-
-### 3. Sanitize repositories
-
-Use a new output directory for each batch or fresh recalculation:
-
-```bash
-uv run repo-sanitizer sanitize-batch repos.txt \
-  --rulepack rules-local \
-  --out sanitized-output/first
-```
-
-The command checks remote access, processes local clones and writes one result
-directory per repository. It does not change or push to the source repositories.
-
-### 4. Check and collect results
-
-```bash
-cat sanitized-output/first/batch_summary.json
-```
-
-For the example list, the bundles are:
-
-```text
-sanitized-output/first/service-api/output/sanitized.bundle
-sanitized-output/first/mobile-app/output/sanitized.bundle
-```
-
-Check that every intended repository has `status: "done"` in the batch summary,
-with `failed` and `pending` both zero. This confirms that the bundles were created;
-it does not certify that every sensitive value was removed. Review the output
-before sharing it. Keep the salt, reports and working directories private.
+Bundles are written to `sanitized-output/<repository>/output/sanitized.bundle`.
+Check that all intended repositories are `done`, with `failed` and `pending` both
+zero. Review bundles before sharing; keep the salt and reports private.
 
 ---
 
@@ -148,8 +102,8 @@ makes the run exit nonzero; a bundle may still exist when verification fails.
 To check an existing bundle independently:
 
 ```bash
-uv run repo-sanitizer gate sanitized-output/first/service-api/output/sanitized.bundle \
-  --rulepack rules-local --out audit-output/service-api --ner-scope off
+uv run repo-sanitizer gate sanitized-output/service-api/output/sanitized.bundle \
+  --rulepack ./examples/rules --out audit-output/service-api --ner-scope off
 cat audit-output/service-api/artifacts/result.json
 ```
 
@@ -160,12 +114,16 @@ checks and detection scope, not a guarantee that every sensitive value was found
 Restore the bundle to inspect the rewritten code and history:
 
 ```bash
-git clone sanitized-output/first/service-api/output/sanitized.bundle verification-service-api
+git clone sanitized-output/service-api/output/sanitized.bundle verification-service-api
 ```
 
 ### Resume and rerun
 
-Rerun the same command with the same list, rules and salt to resume. State is
+Keep the same salt for related runs; do not regenerate it when resuming. Store it
+in your private secret store if you need to reuse it in another shell. The same
+salt and input value produce consistent replacements.
+
+Rerun the sanitization command with the same list, rules and salt to resume. State is
 stored in `<out>/.sanitize_batch_state.json`; completed entries are skipped.
 Add `--retry-failed` to retry failed entries.
 
@@ -199,7 +157,7 @@ For one repository, use `sanitize` with the same rulepack and salt:
 
 ```bash
 uv run repo-sanitizer sanitize git@git.example.com:group/service-api.git \
-  --rulepack rules-local --out sanitized-output/single --ner-scope off --gate
+  --rulepack ./examples/rules --out sanitized-output/single --ner-scope off --gate
 ```
 
 ### NER
@@ -228,7 +186,7 @@ The bundled rulepack selects `Babelscape/wikineural-multilingual-ner` and
 
 ```bash
 uv run repo-sanitizer sanitize-batch repos.txt \
-  --rulepack rules-local --out sanitized-output/ner \
+  --rulepack ./examples/rules --out sanitized-output/ner \
   --workers 2 --ner-scope head --ner-device cpu --gate
 ```
 
@@ -239,6 +197,10 @@ NER-only names detected in history are reported for follow-up, not automatically
 rewritten throughout history.
 
 ### Rules and output scope
+
+The Quickstart uses `examples/rules` directly. For custom policies, patterns or
+dictionaries, see [rulepack authoring](docs/rulepack-authoring.md) and pass your
+rulepack directory with `--rulepack`.
 
 The pipeline rewrites commit identities, configured sensitive values and
 matching historical content, and removes denied files. It preserves branches
